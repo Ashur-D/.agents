@@ -58,6 +58,30 @@
   "enableDeviceSupport": true,
   "idleCompaction": "onReturn",
   "autoResumeLimitedThreads": true,
+  "snoozePresets": [
+    {
+      "kind": "after",
+      "minutes": 30
+    },
+    {
+      "kind": "after",
+      "minutes": 60
+    },
+    {
+      "kind": "after",
+      "minutes": 180
+    },
+    {
+      "kind": "at",
+      "day": "tomorrow",
+      "time": "09:00"
+    },
+    {
+      "kind": "at",
+      "day": "monday",
+      "time": "09:00"
+    }
+  ],
   "guestSharingEnabled": true,
   "defaultTheme": "ocean",
   "environmentIcon": "linux",
