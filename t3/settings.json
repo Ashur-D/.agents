@@ -6,23 +6,7 @@
     },
     {
       "provider": "pi",
-      "model": "antigravity/gemini-3.8-flash"
-    },
-    {
-      "provider": "pi",
       "model": "tabby/gemma-3-4b-it-exl3-8bpw-h8"
-    },
-    {
-      "provider": "pi",
-      "model": "antigravity/gemini-4-argon"
-    },
-    {
-      "provider": "pi",
-      "model": "antigravity/claude-opus-5-5"
-    },
-    {
-      "provider": "pi",
-      "model": "antigravity/claude-sonnet-5-5"
     }
   ],
   "providerModelPreferences": {
@@ -38,8 +22,7 @@
         "antigravity/gemini-3.5-flash",
         "antigravity/gemini-3.6-flash",
         "antigravity/gemini-3.7-flash",
-        "antigravity/gemini-4-argon-disabled",
-        "default"
+        "antigravity/gemini-4-argon-disabled"
       ],
       "modelOrder": [
         "antigravity/gemini-3.8-flash",
@@ -75,6 +58,7 @@
   "enableDeviceSupport": true,
   "idleCompaction": "onReturn",
   "autoResumeLimitedThreads": true,
+  "guestSharingEnabled": true,
   "defaultTheme": "ocean",
   "environmentIcon": "linux",
   "providerInstances": {
@@ -91,7 +75,7 @@
     },
     "antigravity": {
       "driver": "antigravity",
-      "enabled": false,
+      "enabled": true,
       "config": {
         "apiKey": "",
         "gcpProject": "",
