@@ -281,6 +281,11 @@ export function installGlobalBinWrappers() {
   const cliPath = path.join(REPO_DIR, "bin", "cli.mjs");
 
   const wrappers = {
+    "agents": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" "$@"\n`,
+    "agents-setup": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" "$@"\n`,
+    "agents-doctor": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --doctor "$@"\n`,
+    "agents-sync": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --sync --push "$@"\n`,
+    "agents-update": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --update "$@"\n`,
     "pi-setup": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" "$@"\n`,
     "pi-doctor": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --doctor "$@"\n`,
     "pi-sync": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --sync --push "$@"\n`,
@@ -291,7 +296,7 @@ export function installGlobalBinWrappers() {
     const p = path.join(localBin, name);
     fs.writeFileSync(p, content, { mode: 0o755 });
   }
-  console.log(`\n${c.cyan}:: Installed CLI wrappers in ~/.local/bin:${c.reset} pi-setup, pi-doctor, pi-sync, pi-update`);
+  console.log(`\n${c.cyan}:: Installed CLI in ~/.local/bin:${c.reset} agents (setup, doctor, sync, update) + pi-* aliases`);
 }
 
 // ========================================================
@@ -544,16 +549,16 @@ async function main() {
     return;
   }
   if (cmd === "--help" || cmd === "-h" || cmd === "help") {
-    console.log(`Usage: pi-setup [COMMAND] [OPTIONS]
+    console.log(`Usage: agents [COMMAND] [OPTIONS]
 
 Commands:
   (none)                  Interactive modular manager menu
-  -i, --install           Install & configure modules (default: skills,pi,t3)
-  --apply                 Configure skills and apply Pi config without installing packages
-  -u, --update            Update ~/.agents repo, Pi CLI, and Pi extensions (pi-update)
-  -s, --sync [--push]     Sync skills and Pi settings to GitHub (pi-sync)
-  -d, --doctor            Check system health and all harness skill configurations (pi-doctor)
-  --uninstall             Unlink compatibility symlinks and uninstall Pi CLI
+  setup, -i, --install    Install & configure modules (default: skills,pi,t3)
+  apply, --apply          Configure skills and apply Pi config without installing packages
+  update, -u, --update    Update ~/.agents repo, Pi CLI, and Pi extensions
+  sync, -s, --sync        Sync skills and Pi settings to GitHub
+  doctor, -d, --doctor    Check system health and all harness skill configurations
+  uninstall, --uninstall  Unlink compatibility symlinks and uninstall Pi CLI
 
 Options:
   --only <m1,m2>          Select specific modules: skills, pi, t3 (e.g. --only skills,t3)`);
@@ -566,7 +571,7 @@ Options:
       await runSync(args.slice(1), rl);
       return;
     }
-    if (cmd === "--install" || cmd === "-i" || cmd === "install") {
+    if (cmd === "--install" || cmd === "-i" || cmd === "install" || cmd === "setup" || cmd === "--setup") {
       await runInstall({ modules: onlyModules, rl });
       return;
     }

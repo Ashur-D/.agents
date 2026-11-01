@@ -26,13 +26,13 @@ Follows the `agentskills.io` (`~/.agents/skills`) standard for **Pi Coding Agent
 ## ⚡ Quick Start
 
 ```bash
-git clone https://github.com/Ashur-D/pi-agent.git ~/.agents
+git clone https://github.com/Ashur-D/.agents.git ~/.agents
 ~/.agents/bin/setup.sh        # Windows: .\bin\setup.ps1
 ```
 
 ## 🛠️ CLI Commands
 
-- `pi-setup` — Interactive menu (or `--apply`, `--only skills,t3`, `--only skills,pi`)
-- `pi-doctor` — Health check for dependencies and all harness skill configurations
-- `pi-update` — Update `~/.agents`, Pi CLI (`@earendil-works/pi-coding-agent`), and Pi extensions
-- `pi-sync` — Sync `~/.agents/skills` and Pi settings to GitHub
+- `agents` (or `agents setup` / `pi-setup`) — Interactive menu (or `agents apply`, `agents setup --only skills,t3`)
+- `agents doctor` (or `pi-doctor`) — Health check for dependencies and all harness skill configurations
+- `agents update` (or `pi-update`) — Update `~/.agents`, Pi CLI (`@earendil-works/pi-coding-agent`), and Pi extensions
+- `agents sync` (or `pi-sync`) — Sync `~/.agents/skills` and Pi settings to GitHub
