@@ -6,7 +6,8 @@
     "npm:pi-better-edit",
     "npm:pi-zentui",
     "npm:pi-antigravity",
-    "npm:pi-lens"
+    "npm:pi-lens",
+    "npm:pi-subagents"
   ],
   "compaction": {
     "enabled": true

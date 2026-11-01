@@ -199,7 +199,11 @@ export function setupPi({ installCli = true } = {}) {
         existing = JSON.parse(fs.readFileSync(settingsDest, "utf8"));
       } catch {}
     }
-    const merged = { ...existing, ...template };
+    const merged = {
+      ...existing,
+      ...template,
+      packages: [...new Set([...(template.packages || []), ...(existing.packages || [])])],
+    };
     fs.writeFileSync(settingsDest, JSON.stringify(merged, null, 2) + "\n", "utf8");
     console.log(`   ${c.green}[✓]${c.reset} Applied settings.json template`);
   }
