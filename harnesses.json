@@ -4,6 +4,12 @@
     "pi": {
       "name": "Pi Coding Agent",
       "bin": "pi",
+      "npmPackage": "@earendil-works/pi-coding-agent",
+      "t3Provider": {
+        "id": "pi",
+        "driver": "pi",
+        "displayName": "Pi"
+      },
       "skillsMode": "native",
       "configDir": "configs/pi",
       "targetDir": "~/.pi/agent"
@@ -11,19 +17,24 @@
     "opencode": {
       "name": "OpenCode",
       "bin": "opencode",
+      "npmPackage": "opencode-ai",
+      "aurPackage": "opencode",
+      "t3Provider": {
+        "id": "opencode",
+        "driver": "opencode",
+        "displayName": "OpenCode"
+      },
       "skillsMode": "config",
       "configFile": "~/.config/opencode/opencode.json"
     },
     "agy": {
       "name": "Antigravity (Gemini)",
+      "t3Provider": {
+        "id": "antigravity",
+        "driver": "antigravity"
+      },
       "skillsMode": "symlink",
       "skillsPath": "~/.gemini/config/skills"
-    },
-    "t3": {
-      "name": "T3 Code",
-      "bin": ["t3code", "t3"],
-      "skillsMode": "delegated",
-      "targetDir": "~/.t3/userdata"
     }
   }
 }

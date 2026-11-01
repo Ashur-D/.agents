@@ -120,10 +120,104 @@ async function ensureNpm(rl) {
   return commandExists("npm");
 }
 
+function configureNpmUserPrefix() {
+  if (IS_WIN) return;
+  const localBin = path.join(HOME, ".local", "bin");
+  fs.mkdirSync(localBin, { recursive: true });
+  runCmd("npm", ["config", "set", "prefix", path.join(HOME, ".local")]);
+  if (!process.env.PATH?.includes(localBin)) {
+    process.env.PATH = `${localBin}:${process.env.PATH}`;
+  }
+}
+
 // ========================================================
-// 1. MODULE: SKILLS (~/.agents/skills standard)
+// 1. T3 CODE (Auto-Installed by Default)
 // ========================================================
-export function linkAllSkills() {
+export function isT3Installed() {
+  return (
+    commandExists("t3code") ||
+    commandExists("t3") ||
+    (IS_WIN &&
+      (fs.existsSync(path.join(process.env.LOCALAPPDATA || "", "Programs", "t3code", "T3 Code.exe")) ||
+        fs.existsSync(path.join(process.env.LOCALAPPDATA || "", "Programs", "t3code", "t3code.exe"))))
+  );
+}
+
+export function setupT3({ autoInstall = true } = {}) {
+  console.log(`\n${c.cyan}:: Step 1: T3 Code...${c.reset}`);
+
+  if (!isT3Installed() && autoInstall) {
+    console.log(":: T3 Code is not detected. Auto-installing T3 Code (Nightly)...");
+    if (IS_WIN) {
+      runCmd("powershell", [
+        "-NoProfile",
+        "-Command",
+        "$env:T3CODE_CHANNEL='nightly'; Invoke-Expression \"& { $(Invoke-RestMethod 'https://t3.codes/install.ps1') }\"",
+      ]);
+    } else if (commandExists("yay")) {
+      runCmd("yay", ["-S", "--needed", "--noconfirm", "t3code-nightly-bin"]);
+    } else if (commandExists("brew")) {
+      runCmd("brew", ["install", "--cask", "t3-code"]);
+    } else {
+      runCmd("sh", ["-c", "curl -fsSL https://t3.codes/install.sh | T3CODE_CHANNEL=nightly sh"]);
+    }
+  } else if (isT3Installed()) {
+    console.log(`   ${c.green}[✓]${c.reset} T3 Code is installed`);
+  }
+}
+
+function enableT3Provider(t3Provider) {
+  if (!t3Provider?.id) return;
+  const userdata = expandHome("~/.t3/userdata");
+  fs.mkdirSync(userdata, { recursive: true });
+  const settingsDest = path.join(userdata, "settings.json");
+  let existing = {};
+  if (fs.existsSync(settingsDest)) {
+    try {
+      existing = JSON.parse(fs.readFileSync(settingsDest, "utf8"));
+    } catch {}
+  }
+  existing.providerInstances = existing.providerInstances || {};
+  existing.providerInstances[t3Provider.id] = {
+    ...(existing.providerInstances[t3Provider.id] || {}),
+    driver: t3Provider.driver || t3Provider.id,
+    ...(t3Provider.displayName ? { displayName: t3Provider.displayName } : {}),
+    enabled: true,
+  };
+  fs.writeFileSync(settingsDest, JSON.stringify(existing, null, 2) + "\n", "utf8");
+  console.log(`   ${c.green}[✓]${c.reset} Enabled ${t3Provider.displayName || t3Provider.id} provider in T3 Code`);
+}
+
+// ========================================================
+// 2. SKILLS & HARNESS CONFIGURATION
+// ========================================================
+export function configureHarnessSkills(id, h, canonicalRoot, canonicalSkills) {
+  if (h.skillsMode === "native") {
+    console.log(`   ${c.green}[✓]${c.reset} ${h.name}: natively scans ${canonicalRoot} (0 symlinks)`);
+  } else if (h.skillsMode === "config" && h.configFile) {
+    const cfgPath = expandHome(h.configFile);
+    fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
+    let existing = {};
+    if (fs.existsSync(cfgPath)) {
+      try {
+        existing = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+      } catch {}
+    }
+    const skillsArr = Array.isArray(existing.skills) ? existing.skills : [];
+    if (!skillsArr.includes(canonicalRoot) && !skillsArr.includes(canonicalSkills)) {
+      skillsArr.push(canonicalRoot);
+    }
+    existing.skills = skillsArr;
+    fs.writeFileSync(cfgPath, JSON.stringify(existing, null, 2) + "\n", "utf8");
+    console.log(`   ${c.green}[✓]${c.reset} ${h.name}: configured skills=[${canonicalRoot}] in ${h.configFile} (0 symlinks)`);
+  } else if (h.skillsPath) {
+    const dest = expandHome(h.skillsPath);
+    ensureSymlink(canonicalSkills, dest);
+    console.log(`   ${c.green}[✓]${c.reset} ${h.name}: linked ${h.skillsPath} -> ${canonicalRoot}`);
+  }
+}
+
+export function linkAllSkills(selectedHarnesses = null) {
   const cfg = loadHarnessesConfig();
   const repoSkills = path.join(REPO_DIR, "skills");
   const canonicalRoot = cfg.skillsRoot || "~/.agents/skills";
@@ -137,51 +231,20 @@ export function linkAllSkills() {
     console.log(`   ${c.green}[✓]${c.reset} Canonical directory ready: ${canonicalSkills}`);
   }
 
-  for (const h of Object.values(cfg.harnesses)) {
-    if (h.skillsMode === "native") {
-      console.log(`   ${c.green}[✓]${c.reset} ${h.name}: natively scans ${canonicalRoot} (0 symlinks)`);
-    } else if (h.skillsMode === "config" && h.configFile) {
-      const cfgPath = expandHome(h.configFile);
-      fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
-      let existing = {};
-      if (fs.existsSync(cfgPath)) {
-        try {
-          existing = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-        } catch {}
-      }
-      const skillsArr = Array.isArray(existing.skills) ? existing.skills : [];
-      if (!skillsArr.includes(canonicalRoot) && !skillsArr.includes(canonicalSkills)) {
-        skillsArr.push(canonicalRoot);
-      }
-      existing.skills = skillsArr;
-      fs.writeFileSync(cfgPath, JSON.stringify(existing, null, 2) + "\n", "utf8");
-      console.log(`   ${c.green}[✓]${c.reset} ${h.name}: configured skills=[${canonicalRoot}] in ${h.configFile} (0 symlinks)`);
-    } else if (h.skillsPath) {
-      const dest = expandHome(h.skillsPath);
-      ensureSymlink(canonicalSkills, dest);
-      console.log(`   ${c.green}[✓]${c.reset} ${h.name}: linked ${h.skillsPath} -> ${canonicalRoot}`);
-    }
+  for (const [id, h] of Object.entries(cfg.harnesses)) {
+    if (selectedHarnesses && !selectedHarnesses.has(id)) continue;
+    configureHarnessSkills(id, h, canonicalRoot, canonicalSkills);
   }
 }
 
-// ========================================================
-// 2. MODULE: PI CODING AGENT
-// ========================================================
 export async function setupPi({ installCli = true, rl = null } = {}) {
   const cfg = loadHarnessesConfig();
   const piCfg = cfg.harnesses.pi;
   const targetDir = expandHome(piCfg.targetDir || "~/.pi/agent");
   const srcDir = path.join(REPO_DIR, piCfg.configDir || "configs/pi");
 
-  console.log(`\n${c.cyan}:: Setting up Pi Coding Agent...${c.reset}`);
-
   if (installCli && (await ensureNpm(rl))) {
-    if (!IS_WIN) {
-      const localBin = path.join(HOME, ".local", "bin");
-      fs.mkdirSync(localBin, { recursive: true });
-      runCmd("npm", ["config", "set", "prefix", path.join(HOME, ".local")]);
-      process.env.PATH = `${localBin}:${process.env.PATH}`;
-    }
+    configureNpmUserPrefix();
     console.log(":: Installing / updating @earendil-works/pi-coding-agent...");
     runCmd("npm", ["install", "-g", "@earendil-works/pi-coding-agent"]);
   }
@@ -196,7 +259,6 @@ export async function setupPi({ installCli = true, rl = null } = {}) {
     }
   } catch {}
 
-  // Symlink static files (zentui.json & extensions)
   const zentuiSrc = path.join(srcDir, "zentui.json");
   if (fs.existsSync(zentuiSrc)) {
     ensureSymlink(zentuiSrc, path.join(targetDir, "zentui.json"));
@@ -213,7 +275,6 @@ export async function setupPi({ installCli = true, rl = null } = {}) {
     }
   }
 
-  // Merge settings.json template preserving volatile keys
   const settingsTemplatePath = path.join(srcDir, "settings.json");
   const settingsDest = path.join(targetDir, "settings.json");
   if (fs.existsSync(settingsTemplatePath)) {
@@ -230,7 +291,7 @@ export async function setupPi({ installCli = true, rl = null } = {}) {
       packages: [...new Set([...(template.packages || []), ...(existing.packages || [])])],
     };
     fs.writeFileSync(settingsDest, JSON.stringify(merged, null, 2) + "\n", "utf8");
-    console.log(`   ${c.green}[✓]${c.reset} Applied settings.json template`);
+    console.log(`   ${c.green}[✓]${c.reset} Applied Pi settings.json template`);
   }
 
   if (installCli && commandExists("pi")) {
@@ -239,69 +300,34 @@ export async function setupPi({ installCli = true, rl = null } = {}) {
   }
 }
 
-// ========================================================
-// 3. MODULE: T3 CODE (Optional Installer & Provider Enabler)
-// ========================================================
-export async function setupT3({ rl = null, askInstall = true } = {}) {
+export async function setupHarness(id, h, { installCli = true, rl = null } = {}) {
   const cfg = loadHarnessesConfig();
-  const t3Cfg = cfg.harnesses.t3;
-  const userdata = expandHome(t3Cfg.targetDir || "~/.t3/userdata");
+  const canonicalRoot = cfg.skillsRoot || "~/.agents/skills";
+  const canonicalSkills = expandHome(canonicalRoot);
 
-  console.log(`\n${c.cyan}:: T3 Code Integration...${c.reset}`);
+  console.log(`\n${c.cyan}:: Setting up ${h.name}...${c.reset}`);
 
-  const isT3Installed =
-    commandExists("t3code") ||
-    commandExists("t3") ||
-    (IS_WIN &&
-      (fs.existsSync(path.join(process.env.LOCALAPPDATA || "", "Programs", "t3code", "T3 Code.exe")) ||
-        fs.existsSync(path.join(process.env.LOCALAPPDATA || "", "Programs", "t3code", "t3code.exe"))));
-
-  if (!isT3Installed && askInstall) {
-    const ans = await ask(rl, ":: T3 Code is not detected. Install T3 Code (Nightly) now? [Y/n]: ", "Y");
-    if (/^[Yy]/.test(ans)) {
-      if (IS_WIN) {
-        console.log(":: Running T3 Code Windows installer...");
-        runCmd("powershell", [
-          "-NoProfile",
-          "-Command",
-          "$env:T3CODE_CHANNEL='nightly'; Invoke-Expression \"& { $(Invoke-RestMethod 'https://t3.codes/install.ps1') }\"",
-        ]);
-      } else if (commandExists("yay")) {
-        console.log(":: Installing T3 Code Nightly via AUR (yay)...");
-        runCmd("yay", ["-S", "--needed", "--noconfirm", "t3code-nightly-bin"]);
-      } else if (commandExists("brew")) {
-        console.log(":: Installing T3 Code via Homebrew...");
-        runCmd("brew", ["install", "--cask", "t3-code"]);
-      } else {
-        console.log(":: Running official T3 Code Nightly installer...");
-        runCmd("sh", ["-c", "curl -fsSL https://t3.codes/install.sh | T3CODE_CHANNEL=nightly sh"]);
-      }
+  if (id === "pi") {
+    await setupPi({ installCli, rl });
+  } else if (installCli && h.bin && !commandExists(h.bin)) {
+    if (!IS_WIN && h.aurPackage && commandExists("yay")) {
+      console.log(`:: Installing ${h.name} via yay (${h.aurPackage})...`);
+      runCmd("yay", ["-S", "--needed", "--noconfirm", h.aurPackage]);
+    } else if (h.npmPackage && (await ensureNpm(rl))) {
+      configureNpmUserPrefix();
+      console.log(`:: Installing ${h.name} via npm (${h.npmPackage})...`);
+      runCmd("npm", ["install", "-g", h.npmPackage]);
     }
-  } else if (isT3Installed) {
-    console.log(`   ${c.green}[✓]${c.reset} T3 Code binary detected`);
   }
 
-  fs.mkdirSync(userdata, { recursive: true });
-  const settingsDest = path.join(userdata, "settings.json");
-  let existing = {};
-  if (fs.existsSync(settingsDest)) {
-    try {
-      existing = JSON.parse(fs.readFileSync(settingsDest, "utf8"));
-    } catch {}
+  configureHarnessSkills(id, h, canonicalRoot, canonicalSkills);
+  if (h.t3Provider) {
+    enableT3Provider(h.t3Provider);
   }
-  existing.providerInstances = existing.providerInstances || {};
-  existing.providerInstances.pi = {
-    driver: "pi",
-    displayName: "Pi",
-    enabled: true,
-    ...(existing.providerInstances.pi || {}),
-  };
-  fs.writeFileSync(settingsDest, JSON.stringify(existing, null, 2) + "\n", "utf8");
-  console.log(`   ${c.green}[✓]${c.reset} Enabled Pi provider in ~/.t3/userdata/settings.json`);
 }
 
 // ========================================================
-// 4. GLOBAL CLI WRAPPERS (~/.local/bin/pi-*)
+// 3. GLOBAL CLI WRAPPER (~/.local/bin/agents)
 // ========================================================
 export function installGlobalBinWrappers() {
   if (IS_WIN) return;
@@ -315,7 +341,7 @@ export function installGlobalBinWrappers() {
 }
 
 // ========================================================
-// 5. HEALTH CHECK (DOCTOR)
+// 4. HEALTH CHECK (DOCTOR)
 // ========================================================
 export function runDoctor() {
   const cfg = loadHarnessesConfig();
@@ -336,6 +362,9 @@ export function runDoctor() {
       console.log(`  ${c.yellow}[!]${c.reset} ${cmd}: Not found`);
     }
   }
+
+  const t3Bin = getCommandPath("t3code") || getCommandPath("t3");
+  console.log(`  ${t3Bin ? `${c.green}[✓]${c.reset} t3code: ${t3Bin}` : `${c.yellow}[!]${c.reset} t3code: Not found`}`);
 
   const skillCount = fs.existsSync(repoSkills)
     ? fs.readdirSync(repoSkills, { withFileTypes: true }).filter((d) => d.isDirectory()).length
@@ -358,18 +387,18 @@ export function runDoctor() {
     let skillStatus = "";
     if (h.skillsMode === "native") {
       skillStatus = `${c.green}native scan (${canonicalRoot})${c.reset}`;
-    } else if (h.skillsMode === "delegated") {
-      skillStatus = `${c.green}delegates to active provider${c.reset}`;
     } else if (h.skillsMode === "config" && h.configFile) {
       const cfgPath = expandHome(h.configFile);
-      let ok = false;
+      let hasSkillCfg = false;
       if (fs.existsSync(cfgPath)) {
         try {
           const parsed = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-          ok = Array.isArray(parsed.skills) && parsed.skills.includes(canonicalRoot);
+          hasSkillCfg =
+            Array.isArray(parsed.skills) &&
+            (parsed.skills.includes(canonicalRoot) || parsed.skills.includes(canonicalSkills));
         } catch {}
       }
-      skillStatus = ok
+      skillStatus = hasSkillCfg
         ? `${c.green}configured in ${h.configFile}${c.reset}`
         : `${c.yellow}not configured in ${h.configFile}${c.reset}`;
     } else if (h.skillsPath) {
@@ -395,34 +424,25 @@ export function runDoctor() {
 }
 
 // ========================================================
-// 6. CAPTURE / SYNC (Skills + Pi Settings -> GitHub)
+// 5. SYNC (Capture Pi Config & Push Skills to GitHub)
 // ========================================================
 export async function runSync(args = [], rl = null) {
-  let autoPush = false;
-  let customMsg = "";
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--push" || args[i] === "-p") {
-      autoPush = true;
-    } else if (args[i] === "-m" || args[i] === "--message") {
-      customMsg = args[++i] || "";
-    } else if (!customMsg) {
-      customMsg = args[i];
-    }
-  }
-
   console.log("\n==========================================================");
-  console.log("  🔄 Sync Skills & Pi Settings to ~/.agents Repository    ");
+  console.log("  🔄 Sync Skills & Pi Config to GitHub                    ");
   console.log("==========================================================\n");
 
-  const cfg = loadHarnessesConfig();
-  const piTarget = expandHome(cfg.harnesses.pi?.targetDir || "~/.pi/agent");
-  const piSrc = path.join(REPO_DIR, cfg.harnesses.pi?.configDir || "configs/pi");
-  const liveSettings = path.join(piTarget, "settings.json");
+  let autoPush = args.includes("--push") || args.includes("-p");
+  const msgIdx = args.findIndex((a) => a === "-m" || a === "--message");
+  let customMsg = msgIdx !== -1 && args[msgIdx + 1] ? args[msgIdx + 1] : null;
 
-  if (fs.existsSync(liveSettings)) {
+  const cfg = loadHarnessesConfig();
+  const piCfg = cfg.harnesses.pi;
+  const piTarget = expandHome(piCfg?.targetDir || "~/.pi/agent");
+  const piSrc = path.join(REPO_DIR, piCfg?.configDir || "configs/pi");
+
+  if (fs.existsSync(path.join(piTarget, "settings.json"))) {
     try {
-      const data = JSON.parse(fs.readFileSync(liveSettings, "utf8"));
+      const data = JSON.parse(fs.readFileSync(path.join(piTarget, "settings.json"), "utf8"));
       delete data.defaultProvider;
       delete data.defaultModel;
       delete data.defaultThinkingLevel;
@@ -472,9 +492,9 @@ export async function runSync(args = [], rl = null) {
 }
 
 // ========================================================
-// 7. UPDATE
+// 6. UPDATE
 // ========================================================
-export function runUpdate() {
+export async function runUpdate(rl = null) {
   console.log("\n==========================================================");
   console.log("  ⬆️  Updating ~/.agents, Pi CLI & Extensions             ");
   console.log("==========================================================\n");
@@ -482,8 +502,11 @@ export function runUpdate() {
   console.log(":: 1/3 Pulling latest ~/.agents repository...");
   runCmd("git", ["pull", "--rebase", "--autostash"], { cwd: REPO_DIR });
 
-  console.log("\n:: 2/3 Updating @earendil-works/pi-coding-agent...");
-  runCmd("npm", ["install", "-g", "@earendil-works/pi-coding-agent"]);
+  if (await ensureNpm(rl)) {
+    configureNpmUserPrefix();
+    console.log("\n:: 2/3 Updating @earendil-works/pi-coding-agent...");
+    runCmd("npm", ["install", "-g", "@earendil-works/pi-coding-agent"]);
+  }
 
   const cfg = loadHarnessesConfig();
   const piTarget = expandHome(cfg.harnesses.pi?.targetDir || "~/.pi/agent");
@@ -497,26 +520,43 @@ export function runUpdate() {
 }
 
 // ========================================================
-// 8. MODULAR INSTALL / APPLY
+// 7. INSTALL / APPLY FLOW
 // ========================================================
-export async function runInstall({ modules = ["skills", "pi", "t3"], rl = null, applyOnly = false } = {}) {
-  const set = new Set(modules.map((m) => m.trim().toLowerCase()));
+export async function runInstall({ only = null, rl = null, applyOnly = false } = {}) {
+  const cfg = loadHarnessesConfig();
+  const explicitSet = only ? new Set(only.map((m) => m.trim().toLowerCase())) : null;
 
-  if (set.has("skills")) {
-    linkAllSkills();
+  // 1. Auto-install T3 Code (unless --only was specified without t3, or applyOnly is set)
+  if (!applyOnly && (!explicitSet || explicitSet.has("t3"))) {
+    setupT3({ autoInstall: true });
   }
-  if (set.has("pi")) {
-    await setupPi({ installCli: !applyOnly, rl });
+
+  // 2. Ask the user for each harness in harnesses.json (unless --only or applyOnly was passed)
+  console.log(`\n${c.cyan}:: Step 2: Harnesses & Shared Skills (${cfg.skillsRoot || "~/.agents/skills"})...${c.reset}`);
+  for (const [id, h] of Object.entries(cfg.harnesses)) {
+    if (explicitSet) {
+      if (!explicitSet.has(id) && !explicitSet.has("skills")) continue;
+      if (explicitSet.has("skills") && !explicitSet.has(id)) {
+        configureHarnessSkills(id, h, cfg.skillsRoot || "~/.agents/skills", expandHome(cfg.skillsRoot || "~/.agents/skills"));
+        continue;
+      }
+    } else if (!applyOnly && rl) {
+      const ans = await ask(rl, `\n:: Do you want to install/configure ${c.bold}${h.name}${c.reset}? [Y/n]: `, "Y");
+      if (!/^[Yy]/.test(ans)) {
+        console.log(`   :: Skipping ${h.name}.`);
+        continue;
+      }
+    }
+
+    await setupHarness(id, h, { installCli: !applyOnly, rl });
   }
-  if (set.has("t3")) {
-    await setupT3({ rl, askInstall: !applyOnly });
-  }
+
   installGlobalBinWrappers();
   console.log(`\n${c.green}✨ Setup completed successfully!${c.reset}\n`);
 }
 
 // ========================================================
-// 9. UNINSTALL
+// 8. UNINSTALL
 // ========================================================
 export async function runUninstall(rl) {
   const ans = await ask(rl, ":: Are you sure you want to remove symlinks and Pi CLI? [y/N]: ", "N");
@@ -546,7 +586,7 @@ async function main() {
   const args = process.argv.slice(2);
   const cmd = args[0] || "";
 
-  let onlyModules = ["skills", "pi", "t3"];
+  let onlyModules = null;
   const onlyIdx = args.indexOf("--only");
   if (onlyIdx !== -1 && args[onlyIdx + 1]) {
     onlyModules = args[onlyIdx + 1].split(",");
@@ -556,12 +596,8 @@ async function main() {
     runDoctor();
     return;
   }
-  if (cmd === "--update" || cmd === "-u" || cmd === "update") {
-    runUpdate();
-    return;
-  }
   if (cmd === "--apply" || cmd === "apply") {
-    await runInstall({ modules: onlyModules, applyOnly: true });
+    await runInstall({ only: onlyModules, applyOnly: true });
     return;
   }
   if (cmd === "--help" || cmd === "-h" || cmd === "help") {
@@ -569,7 +605,7 @@ async function main() {
 
 Commands:
   (none)                  Interactive modular manager menu
-  setup, -i, --install    Install & configure modules (default: skills,pi,t3)
+  setup, -i, --install    Auto-install T3 Code & prompt for each harness in harnesses.json
   apply, --apply          Configure skills and apply Pi config without installing packages
   update, -u, --update    Update ~/.agents repo, Pi CLI, and Pi extensions
   sync, -s, --sync        Sync skills and Pi settings to GitHub
@@ -577,18 +613,22 @@ Commands:
   uninstall, --uninstall  Unlink compatibility symlinks and uninstall Pi CLI
 
 Options:
-  --only <m1,m2>          Select specific modules: skills, pi, t3 (e.g. --only skills,t3)`);
+  --only <h1,h2>          Non-interactive install for specific targets (e.g. --only t3,pi,agy)`);
     return;
   }
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
+    if (cmd === "--update" || cmd === "-u" || cmd === "update") {
+      await runUpdate(rl);
+      return;
+    }
     if (cmd === "--sync" || cmd === "-s" || cmd === "sync") {
       await runSync(args.slice(1), rl);
       return;
     }
     if (cmd === "--install" || cmd === "-i" || cmd === "install" || cmd === "setup" || cmd === "--setup") {
-      await runInstall({ modules: onlyModules, rl });
+      await runInstall({ only: onlyModules, rl });
       return;
     }
     if (cmd === "--uninstall" || cmd === "uninstall") {
@@ -600,8 +640,8 @@ Options:
     console.log("  🚀 Universal AI Harness & Skills Manager (~/.agents)    ");
     console.log("==========================================================\n");
     console.log("Select an action (or run directly via CLI):");
-    console.log("  1) Install & Configure Modules       (agents setup [--only skills,pi,t3])");
-    console.log("  2) Apply Skills & Configs Only       (agents apply [--only skills,pi,t3])");
+    console.log("  1) Install T3 Code & Harnesses       (agents setup)");
+    console.log("  2) Apply Skills & Configs Only       (agents apply)");
     console.log("  3) Update Repo, Pi CLI & Extensions  (agents update)");
     console.log("  4) Sync Skills & Pi Config to GitHub (agents sync)");
     console.log("  5) Run System Health Check           (agents doctor)");
@@ -611,10 +651,10 @@ Options:
     const choice = await ask(rl, "Enter choice [1-7] (default: 1): ", "1");
     switch (choice) {
       case "1":
-        await runInstall({ modules: ["skills", "pi", "t3"], rl });
+        await runInstall({ rl });
         break;
       case "2":
-        await runInstall({ modules: ["skills", "pi", "t3"], rl, applyOnly: true });
+        await runInstall({ rl, applyOnly: true });
         break;
       case "3":
         await runUpdate(rl);
