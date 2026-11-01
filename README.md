@@ -9,8 +9,7 @@ Modular configuration, shared skills (`~/skills`), and setup manager for **Antig
 ├── harnesses.json       # Declarative registry of harnesses & skill symlink targets
 ├── skills/              # Canonical skills (linked to ~/skills and all harnesses)
 ├── configs/
-│   ├── pi/              # Pi templates & custom-welcome extension
-│   └── t3/              # Sanitized T3 Code settings & keybindings
+│   └── pi/              # Pi templates & custom-welcome extension
 └── bin/
     ├── cli.mjs          # Cross-platform modular CLI
     ├── setup.sh         # Linux / macOS bootstrapper
@@ -29,7 +28,7 @@ git clone https://github.com/Ashur-D/pi-agent.git ~/agents
 - `pi-setup` — Interactive menu (or `--apply`, `--only skills,t3`, `--only skills,pi`)
 - `pi-doctor` — Health check for dependencies and all harness skill symlinks
 - `pi-update` — Update `~/agents`, Pi CLI (`@earendil-works/pi-coding-agent`), and Pi extensions
-- `pi-sync` — Capture sanitized live UI settings from Pi & T3 Code and push to GitHub
+- `pi-sync` — Sync `~/skills` and Pi settings to GitHub
 
 ## 🔌 Adding or Removing a Harness
 

@@ -35,10 +35,6 @@ function loadHarnessesConfig() {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
-function commandExists(cmd) {
-  return getCommandPath(cmd) !== null;
-}
-
 function getCommandPath(cmd) {
   try {
     const checker = IS_WIN ? `where ${cmd}` : `command -v ${cmd}`;
@@ -48,6 +44,10 @@ function getCommandPath(cmd) {
   } catch {
     return null;
   }
+}
+
+function commandExists(cmd) {
+  return getCommandPath(cmd) !== null;
 }
 
 function runCmd(cmd, args = [], opts = {}) {
@@ -109,7 +109,7 @@ export function linkAllSkills() {
     console.log(`   ${c.green}[✓]${c.reset} ${cfg.skillsRoot} -> ${repoSkills}`);
   }
 
-  for (const [id, h] of Object.entries(cfg.harnesses)) {
+  for (const h of Object.values(cfg.harnesses)) {
     if (!h.skillsPath) continue;
     const dest = expandHome(h.skillsPath);
     ensureSymlink(canonicalSkills, dest);
@@ -181,13 +181,12 @@ export function setupPi({ installCli = true } = {}) {
 }
 
 // ========================================================
-// 3. MODULE: T3 CODE
+// 3. MODULE: T3 CODE (Optional Installer & Provider Enabler)
 // ========================================================
 export async function setupT3({ rl = null, askInstall = true } = {}) {
   const cfg = loadHarnessesConfig();
   const t3Cfg = cfg.harnesses.t3;
   const userdata = expandHome(t3Cfg.targetDir || "~/.t3/userdata");
-  const srcDir = path.join(REPO_DIR, t3Cfg.configDir || "configs/t3");
 
   console.log(`\n${c.cyan}:: T3 Code Integration...${c.reset}`);
 
@@ -223,67 +222,24 @@ export async function setupT3({ rl = null, askInstall = true } = {}) {
     console.log(`   ${c.green}[✓]${c.reset} T3 Code binary detected`);
   }
 
+  // Ensure Pi provider is enabled in ~/.t3/userdata/settings.json without syncing/overwriting UI preferences
   fs.mkdirSync(userdata, { recursive: true });
-
-  // Symlink static keybindings.json
-  const kbSrc = path.join(srcDir, "keybindings.json");
-  if (fs.existsSync(kbSrc)) {
-    ensureSymlink(kbSrc, path.join(userdata, "keybindings.json"));
-    console.log(`   ${c.green}[✓]${c.reset} Linked keybindings.json`);
-  }
-
-  // One-way template merge for client-settings.json
-  const clientSrc = path.join(srcDir, "client-settings.json");
-  const clientDest = path.join(userdata, "client-settings.json");
-  if (fs.existsSync(clientSrc)) {
-    const template = JSON.parse(fs.readFileSync(clientSrc, "utf8"));
-    let existing = {};
-    if (fs.existsSync(clientDest)) {
-      try {
-        existing = JSON.parse(fs.readFileSync(clientDest, "utf8"));
-      } catch {}
-    }
-    const merged = { ...template, ...existing };
-    fs.writeFileSync(clientDest, JSON.stringify(merged, null, 2) + "\n", "utf8");
-    console.log(`   ${c.green}[✓]${c.reset} Applied client-settings.json template`);
-  }
-
-  // One-way template merge for settings.json (preserving live API keys)
-  const settingsSrc = path.join(srcDir, "settings.json");
   const settingsDest = path.join(userdata, "settings.json");
-  if (fs.existsSync(settingsSrc)) {
-    const template = JSON.parse(fs.readFileSync(settingsSrc, "utf8"));
-    let existing = {};
-    if (fs.existsSync(settingsDest)) {
-      try {
-        existing = JSON.parse(fs.readFileSync(settingsDest, "utf8"));
-      } catch {}
-    }
-    const merged = {
-      ...template,
-      ...existing,
-      favorites: existing.favorites?.length ? existing.favorites : template.favorites,
-      providerModelPreferences: existing.providerModelPreferences || template.providerModelPreferences,
-      providerInstances: {
-        ...(template.providerInstances || {}),
-        ...(existing.providerInstances || {}),
-        pi: {
-          driver: "pi",
-          displayName: "Pi",
-          enabled: true,
-          ...(existing.providerInstances?.pi || {}),
-        },
-      },
-    };
-    if (!merged.defaultModelSelection) {
-      merged.defaultModelSelection = template.defaultModelSelection || {
-        instanceId: "pi",
-        model: "antigravity/gemini-3.8-flash",
-      };
-    }
-    fs.writeFileSync(settingsDest, JSON.stringify(merged, null, 2) + "\n", "utf8");
-    console.log(`   ${c.green}[✓]${c.reset} Applied T3 settings.json template`);
+  let existing = {};
+  if (fs.existsSync(settingsDest)) {
+    try {
+      existing = JSON.parse(fs.readFileSync(settingsDest, "utf8"));
+    } catch {}
   }
+  existing.providerInstances = existing.providerInstances || {};
+  existing.providerInstances.pi = {
+    driver: "pi",
+    displayName: "Pi",
+    enabled: true,
+    ...(existing.providerInstances.pi || {}),
+  };
+  fs.writeFileSync(settingsDest, JSON.stringify(existing, null, 2) + "\n", "utf8");
+  console.log(`   ${c.green}[✓]${c.reset} Enabled Pi provider in ~/.t3/userdata/settings.json`);
 }
 
 // ========================================================
@@ -344,7 +300,7 @@ export function runDoctor() {
   }
 
   console.log(`\n${c.bold}Registered Harnesses (from harnesses.json):${c.reset}`);
-  for (const [id, h] of Object.entries(cfg.harnesses)) {
+  for (const h of Object.values(cfg.harnesses)) {
     const bins = Array.isArray(h.bin) ? h.bin : h.bin ? [h.bin] : [];
     const foundBin = bins.map(getCommandPath).find(Boolean);
     const binStatus =
@@ -378,7 +334,7 @@ export function runDoctor() {
 }
 
 // ========================================================
-// 6. CAPTURE / SYNC (Live App Settings -> Repo -> GitHub)
+// 6. CAPTURE / SYNC (Skills + Pi Settings -> GitHub)
 // ========================================================
 export async function runSync(args = [], rl = null) {
   let autoPush = false;
@@ -395,12 +351,12 @@ export async function runSync(args = [], rl = null) {
   }
 
   console.log("\n==========================================================");
-  console.log("  🔄 Capture & Sync Settings to ~/agents Repository       ");
+  console.log("  🔄 Sync Skills & Pi Settings to ~/agents Repository     ");
   console.log("==========================================================\n");
 
   const cfg = loadHarnessesConfig();
 
-  // 1. Capture Pi settings.json (strip volatile keys)
+  // Capture Pi settings.json (strip volatile keys)
   const piTarget = expandHome(cfg.harnesses.pi?.targetDir || "~/.pi/agent");
   const piRepoCfg = path.join(REPO_DIR, cfg.harnesses.pi?.configDir || "configs/pi");
   const piSettingsLive = path.join(piTarget, "settings.json");
@@ -416,47 +372,7 @@ export async function runSync(args = [], rl = null) {
     }
   }
 
-  // 2. Capture T3 Code settings (strip secrets & volatile keys)
-  const t3Target = expandHome(cfg.harnesses.t3?.targetDir || "~/.t3/userdata");
-  const t3RepoCfg = path.join(REPO_DIR, cfg.harnesses.t3?.configDir || "configs/t3");
-  if (fs.existsSync(t3Target)) {
-    fs.mkdirSync(t3RepoCfg, { recursive: true });
-
-    const clientLive = path.join(t3Target, "client-settings.json");
-    if (fs.existsSync(clientLive)) {
-      try {
-        const data = JSON.parse(fs.readFileSync(clientLive, "utf8"));
-        for (const k of ["onboardingCompletedAt", "dismissedProviderUpdateNotificationKeys"]) {
-          delete data[k];
-        }
-        fs.writeFileSync(path.join(t3RepoCfg, "client-settings.json"), JSON.stringify(data, null, 2) + "\n", "utf8");
-        console.log(`   ${c.green}[✓]${c.reset} configs/t3/client-settings.json (volatile keys stripped)`);
-      } catch (e) {
-        console.error(`   ${c.red}[!]${c.reset} Failed parsing T3 client-settings.json:`, e.message);
-      }
-    }
-
-    const settingsLive = path.join(t3Target, "settings.json");
-    if (fs.existsSync(settingsLive)) {
-      try {
-        const data = JSON.parse(fs.readFileSync(settingsLive, "utf8"));
-        if (data.providerInstances) {
-          for (const p of Object.values(data.providerInstances)) {
-            if (p && p.config && typeof p.config.apiKey === "string") {
-              p.config.apiKey = "";
-            }
-          }
-        }
-        delete data.defaultThemeSetAt;
-        fs.writeFileSync(path.join(t3RepoCfg, "settings.json"), JSON.stringify(data, null, 2) + "\n", "utf8");
-        console.log(`   ${c.green}[✓]${c.reset} configs/t3/settings.json (secrets sanitized)`);
-      } catch (e) {
-        console.error(`   ${c.red}[!]${c.reset} Failed parsing T3 settings.json:`, e.message);
-      }
-    }
-  }
-
-  // 3. Check Git status in ~/agents
+  // Check Git status in ~/agents
   const statusOut = runCmd("git", ["-C", REPO_DIR, "status", "--porcelain"], { silent: true }).stdout?.trim();
   if (!statusOut) {
     console.log("\n:: Everything is already in sync with Git (no changes detected).");
@@ -474,7 +390,7 @@ export async function runSync(args = [], rl = null) {
 
   if (shouldPush) {
     const now = new Date().toISOString().slice(0, 16).replace("T", " ");
-    const msg = customMsg || `chore: sync skills and harness configs [${now}]`;
+    const msg = customMsg || `chore: sync skills and Pi config [${now}]`;
     runCmd("git", ["-C", REPO_DIR, "add", "harnesses.json", "skills", "configs"]);
     const diffCached = runCmd("git", ["-C", REPO_DIR, "diff", "--cached", "--quiet"]);
     if (diffCached.status === 0) {
@@ -535,7 +451,7 @@ export async function runInstall({ modules = ["skills", "pi", "t3"], rl = null, 
 // 9. UNINSTALL
 // ========================================================
 export async function runUninstall(rl) {
-  const ans = await ask(rl, ":: Are you sure you want to remove symlinks, Pi Agent, and T3 Code? [y/N]: ", "N");
+  const ans = await ask(rl, ":: Are you sure you want to remove symlinks and Pi CLI? [y/N]: ", "N");
   if (!/^[Yy]/.test(ans)) {
     console.log(":: Uninstall cancelled.");
     return;
@@ -590,9 +506,9 @@ async function main() {
 Commands:
   (none)                  Interactive modular manager menu
   -i, --install           Install & configure modules (default: skills,pi,t3)
-  --apply                 Link skills and apply config templates without installing packages
+  --apply                 Link skills and apply Pi config without installing packages
   -u, --update            Update ~/agents repo, Pi CLI, and Pi extensions (pi-update)
-  -s, --sync [--push]     Capture sanitized live settings into ~/agents (pi-sync)
+  -s, --sync [--push]     Sync skills and Pi settings to GitHub (pi-sync)
   -d, --doctor            Check system health and all harness skill symlinks (pi-doctor)
   --uninstall             Unlink skills and uninstall Pi CLI
 
@@ -620,10 +536,10 @@ Options:
     console.log("  🚀 Universal AI Harness & Skills Manager (~/agents)     ");
     console.log("==========================================================\n");
     console.log("Select an action:");
-    console.log("  1) Install / Configure All (Skills + Pi + T3 Code)");
+    console.log("  1) Install / Configure All (Skills + Pi + Optional T3 Code)");
     console.log("  2) Link Universal Skills Only (~/skills -> agy, opencode, pi, t3)");
     console.log("  3) Update Pi & Extensions (pi-update)");
-    console.log("  4) Capture & Sync Live Settings to GitHub (pi-sync)");
+    console.log("  4) Sync Skills & Pi Config to GitHub (pi-sync)");
     console.log("  5) Run System Health Check (pi-doctor)");
     console.log("  6) Uninstall");
     console.log("  7) Exit\n");

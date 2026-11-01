@@ -23,11 +23,7 @@
     },
     "t3": {
       "name": "T3 Code",
-      "bin": [
-        "t3code",
-        "t3"
-      ],
-      "configDir": "configs/t3",
+      "bin": ["t3code", "t3"],
       "targetDir": "~/.t3/userdata"
     }
   }
