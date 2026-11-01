@@ -1,40 +1,4 @@
 # ==========================================
-# CRITICAL: Credentials, Secrets & Tokens
-# ==========================================
-auth.json
-antigravity-accounts.json
-*.key
-*.token
-*.pem
-.env*
-*_rsa*
-
-# ==========================================
-# Pi Agent Caches & Internal State
-# ==========================================
-models-store.json
-sessions/
-tmp/
-web-search-cache/
-pi-web-access/
-*-debug.log
-crashes.json
-
-# ==========================================
-# Installed Node / Git Packages & Binaries
-# ==========================================
-npm/
-git/
-node_modules/
-
-# ==========================================
-# Machine-local / churny state (not portable)
-# ==========================================
-t3/desktop-settings.json
-t3/keybindings-migrations
-themes/
-
-# ==========================================
 # OS & Editor Artifacts
 # ==========================================
 .DS_Store
@@ -43,4 +7,15 @@ themes/
 *~
 .idea/
 .vscode/
-zeron-sessions/
+node_modules/
+
+# ==========================================
+# Secrets & Keys (Safety Guard)
+# ==========================================
+*.key
+*.token
+*.pem
+.env*
+*_rsa*
+auth.json
+antigravity-accounts.json

@@ -1,0 +1,663 @@
+#!/usr/bin/env node
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import readline from "node:readline/promises";
+import { execSync, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const REPO_DIR = path.resolve(__dirname, "..");
+const HOME = os.homedir();
+const IS_WIN = process.platform === "win32";
+
+const c = {
+  reset: "\x1b[0m",
+  cyan: "\x1b[36m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  red: "\x1b[31m",
+  bold: "\x1b[1m",
+};
+
+function expandHome(p) {
+  if (!p) return p;
+  if (p === "~") return HOME;
+  if (p.startsWith("~/") || p.startsWith("~\\")) {
+    return path.join(HOME, p.slice(2));
+  }
+  return path.resolve(REPO_DIR, p);
+}
+
+function loadHarnessesConfig() {
+  const file = path.join(REPO_DIR, "harnesses.json");
+  return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function commandExists(cmd) {
+  return getCommandPath(cmd) !== null;
+}
+
+function getCommandPath(cmd) {
+  try {
+    const checker = IS_WIN ? `where ${cmd}` : `command -v ${cmd}`;
+    return execSync(checker, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+      .trim()
+      .split(/\r?\n/)[0];
+  } catch {
+    return null;
+  }
+}
+
+function runCmd(cmd, args = [], opts = {}) {
+  return spawnSync(cmd, args, {
+    stdio: opts.silent ? "pipe" : "inherit",
+    shell: IS_WIN,
+    encoding: "utf8",
+    ...opts,
+  });
+}
+
+function ensureSymlink(targetPath, linkPath) {
+  const parent = path.dirname(linkPath);
+  fs.mkdirSync(parent, { recursive: true });
+
+  try {
+    const stat = fs.lstatSync(linkPath);
+    if (stat.isSymbolicLink()) {
+      const currentTarget = fs.readlinkSync(linkPath);
+      if (path.resolve(path.dirname(linkPath), currentTarget) === path.resolve(targetPath)) {
+        return "already-linked";
+      }
+      fs.unlinkSync(linkPath);
+    } else if (stat.isDirectory()) {
+      fs.rmSync(linkPath, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(linkPath);
+    }
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+  }
+
+  const isDir = fs.statSync(targetPath).isDirectory();
+  fs.symlinkSync(targetPath, linkPath, IS_WIN ? (isDir ? "junction" : "file") : undefined);
+  return "linked";
+}
+
+async function ask(rl, promptText, defaultVal = "") {
+  if (!rl) return defaultVal;
+  try {
+    const ans = (await rl.question(promptText)).trim();
+    return ans || defaultVal;
+  } catch {
+    return defaultVal;
+  }
+}
+
+// ========================================================
+// 1. MODULE: SKILLS (Universal ~/skills + Harness Links)
+// ========================================================
+export function linkAllSkills() {
+  const cfg = loadHarnessesConfig();
+  const repoSkills = path.join(REPO_DIR, "skills");
+  const canonicalSkills = expandHome(cfg.skillsRoot || "~/skills");
+
+  console.log(`\n${c.cyan}:: Linking universal skills -> ${canonicalSkills}...${c.reset}`);
+  if (canonicalSkills !== repoSkills) {
+    ensureSymlink(repoSkills, canonicalSkills);
+    console.log(`   ${c.green}[✓]${c.reset} ${cfg.skillsRoot} -> ${repoSkills}`);
+  }
+
+  for (const [id, h] of Object.entries(cfg.harnesses)) {
+    if (!h.skillsPath) continue;
+    const dest = expandHome(h.skillsPath);
+    ensureSymlink(canonicalSkills, dest);
+    console.log(`   ${c.green}[✓]${c.reset} ${h.name} (${h.skillsPath} -> ${cfg.skillsRoot})`);
+  }
+}
+
+// ========================================================
+// 2. MODULE: PI CODING AGENT
+// ========================================================
+export function setupPi({ installCli = true } = {}) {
+  const cfg = loadHarnessesConfig();
+  const piCfg = cfg.harnesses.pi;
+  const targetDir = expandHome(piCfg.targetDir || "~/.pi/agent");
+  const srcDir = path.join(REPO_DIR, piCfg.configDir || "configs/pi");
+
+  console.log(`\n${c.cyan}:: Setting up Pi Coding Agent...${c.reset}`);
+
+  if (installCli) {
+    if (!IS_WIN) {
+      const localBin = path.join(HOME, ".local", "bin");
+      fs.mkdirSync(localBin, { recursive: true });
+      runCmd("npm", ["config", "set", "prefix", path.join(HOME, ".local")]);
+      process.env.PATH = `${localBin}:${process.env.PATH}`;
+    }
+    console.log(":: Installing / updating @earendil-works/pi-coding-agent...");
+    runCmd("npm", ["install", "-g", "@earendil-works/pi-coding-agent"]);
+  }
+
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  // Symlink static files (zentui.json & extensions)
+  const zentuiSrc = path.join(srcDir, "zentui.json");
+  if (fs.existsSync(zentuiSrc)) {
+    ensureSymlink(zentuiSrc, path.join(targetDir, "zentui.json"));
+    console.log(`   ${c.green}[✓]${c.reset} Linked zentui.json`);
+  }
+
+  const extSrcDir = path.join(srcDir, "extensions");
+  const extDestDir = path.join(targetDir, "extensions");
+  fs.mkdirSync(extDestDir, { recursive: true });
+  if (fs.existsSync(extSrcDir)) {
+    for (const entry of fs.readdirSync(extSrcDir)) {
+      ensureSymlink(path.join(extSrcDir, entry), path.join(extDestDir, entry));
+      console.log(`   ${c.green}[✓]${c.reset} Linked extension: ${entry}`);
+    }
+  }
+
+  // One-way template merge for settings.json (preserves runtime keys like lastChangelogVersion)
+  const settingsSrc = path.join(srcDir, "settings.json");
+  const settingsDest = path.join(targetDir, "settings.json");
+  if (fs.existsSync(settingsSrc)) {
+    const template = JSON.parse(fs.readFileSync(settingsSrc, "utf8"));
+    let existing = {};
+    if (fs.existsSync(settingsDest)) {
+      try {
+        existing = JSON.parse(fs.readFileSync(settingsDest, "utf8"));
+      } catch {}
+    }
+    const merged = { ...existing, ...template };
+    fs.writeFileSync(settingsDest, JSON.stringify(merged, null, 2) + "\n", "utf8");
+    console.log(`   ${c.green}[✓]${c.reset} Applied settings.json template`);
+  }
+
+  if (installCli && commandExists("pi")) {
+    console.log(":: Updating declared Pi extensions...");
+    runCmd("pi", ["update", "--extensions"], { cwd: targetDir });
+  }
+}
+
+// ========================================================
+// 3. MODULE: T3 CODE
+// ========================================================
+export async function setupT3({ rl = null, askInstall = true } = {}) {
+  const cfg = loadHarnessesConfig();
+  const t3Cfg = cfg.harnesses.t3;
+  const userdata = expandHome(t3Cfg.targetDir || "~/.t3/userdata");
+  const srcDir = path.join(REPO_DIR, t3Cfg.configDir || "configs/t3");
+
+  console.log(`\n${c.cyan}:: T3 Code Integration...${c.reset}`);
+
+  const isT3Installed =
+    commandExists("t3code") ||
+    commandExists("t3") ||
+    (IS_WIN &&
+      (fs.existsSync(path.join(process.env.LOCALAPPDATA || "", "Programs", "t3code", "T3 Code.exe")) ||
+        fs.existsSync(path.join(process.env.LOCALAPPDATA || "", "Programs", "t3code", "t3code.exe"))));
+
+  if (!isT3Installed && askInstall) {
+    const ans = await ask(rl, ":: T3 Code is not detected. Install T3 Code (Nightly) now? [Y/n]: ", "Y");
+    if (/^[Yy]/.test(ans)) {
+      if (IS_WIN) {
+        console.log(":: Running T3 Code Windows installer...");
+        runCmd("powershell", [
+          "-NoProfile",
+          "-Command",
+          "$env:T3CODE_CHANNEL='nightly'; Invoke-Expression \"& { $(Invoke-RestMethod 'https://t3.codes/install.ps1') }\"",
+        ]);
+      } else if (commandExists("yay")) {
+        console.log(":: Installing T3 Code Nightly via AUR (yay)...");
+        runCmd("yay", ["-S", "--needed", "--noconfirm", "t3code-nightly-bin"]);
+      } else if (commandExists("brew")) {
+        console.log(":: Installing T3 Code via Homebrew...");
+        runCmd("brew", ["install", "--cask", "t3-code"]);
+      } else {
+        console.log(":: Running official T3 Code Nightly installer...");
+        runCmd("sh", ["-c", "curl -fsSL https://t3.codes/install.sh | T3CODE_CHANNEL=nightly sh"]);
+      }
+    }
+  } else if (isT3Installed) {
+    console.log(`   ${c.green}[✓]${c.reset} T3 Code binary detected`);
+  }
+
+  fs.mkdirSync(userdata, { recursive: true });
+
+  // Symlink static keybindings.json
+  const kbSrc = path.join(srcDir, "keybindings.json");
+  if (fs.existsSync(kbSrc)) {
+    ensureSymlink(kbSrc, path.join(userdata, "keybindings.json"));
+    console.log(`   ${c.green}[✓]${c.reset} Linked keybindings.json`);
+  }
+
+  // One-way template merge for client-settings.json
+  const clientSrc = path.join(srcDir, "client-settings.json");
+  const clientDest = path.join(userdata, "client-settings.json");
+  if (fs.existsSync(clientSrc)) {
+    const template = JSON.parse(fs.readFileSync(clientSrc, "utf8"));
+    let existing = {};
+    if (fs.existsSync(clientDest)) {
+      try {
+        existing = JSON.parse(fs.readFileSync(clientDest, "utf8"));
+      } catch {}
+    }
+    const merged = { ...template, ...existing };
+    fs.writeFileSync(clientDest, JSON.stringify(merged, null, 2) + "\n", "utf8");
+    console.log(`   ${c.green}[✓]${c.reset} Applied client-settings.json template`);
+  }
+
+  // One-way template merge for settings.json (preserving live API keys)
+  const settingsSrc = path.join(srcDir, "settings.json");
+  const settingsDest = path.join(userdata, "settings.json");
+  if (fs.existsSync(settingsSrc)) {
+    const template = JSON.parse(fs.readFileSync(settingsSrc, "utf8"));
+    let existing = {};
+    if (fs.existsSync(settingsDest)) {
+      try {
+        existing = JSON.parse(fs.readFileSync(settingsDest, "utf8"));
+      } catch {}
+    }
+    const merged = {
+      ...template,
+      ...existing,
+      favorites: existing.favorites?.length ? existing.favorites : template.favorites,
+      providerModelPreferences: existing.providerModelPreferences || template.providerModelPreferences,
+      providerInstances: {
+        ...(template.providerInstances || {}),
+        ...(existing.providerInstances || {}),
+        pi: {
+          driver: "pi",
+          displayName: "Pi",
+          enabled: true,
+          ...(existing.providerInstances?.pi || {}),
+        },
+      },
+    };
+    if (!merged.defaultModelSelection) {
+      merged.defaultModelSelection = template.defaultModelSelection || {
+        instanceId: "pi",
+        model: "antigravity/gemini-3.8-flash",
+      };
+    }
+    fs.writeFileSync(settingsDest, JSON.stringify(merged, null, 2) + "\n", "utf8");
+    console.log(`   ${c.green}[✓]${c.reset} Applied T3 settings.json template`);
+  }
+}
+
+// ========================================================
+// 4. GLOBAL CLI WRAPPERS (~/.local/bin/pi-*)
+// ========================================================
+export function installGlobalBinWrappers() {
+  if (IS_WIN) return;
+  const localBin = path.join(HOME, ".local", "bin");
+  fs.mkdirSync(localBin, { recursive: true });
+  const cliPath = path.join(REPO_DIR, "bin", "cli.mjs");
+
+  const wrappers = {
+    "pi-setup": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" "$@"\n`,
+    "pi-doctor": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --doctor "$@"\n`,
+    "pi-sync": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --sync --push "$@"\n`,
+    "pi-update": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --update "$@"\n`,
+  };
+
+  for (const [name, content] of Object.entries(wrappers)) {
+    const p = path.join(localBin, name);
+    fs.writeFileSync(p, content, { mode: 0o755 });
+  }
+  console.log(`\n${c.cyan}:: Installed CLI wrappers in ~/.local/bin:${c.reset} pi-setup, pi-doctor, pi-sync, pi-update`);
+}
+
+// ========================================================
+// 5. HEALTH CHECK (DOCTOR)
+// ========================================================
+export function runDoctor() {
+  const cfg = loadHarnessesConfig();
+  const canonicalSkills = expandHome(cfg.skillsRoot || "~/skills");
+  const repoSkills = path.join(REPO_DIR, "skills");
+
+  console.log("\n==========================================================");
+  console.log("  🩺 System Health Check (Doctor)                         ");
+  console.log("==========================================================\n");
+
+  console.log(`${c.bold}Core Dependencies:${c.reset}`);
+  for (const cmd of ["node", "npm", "git", "rg", "fd"]) {
+    const bin = getCommandPath(cmd);
+    if (bin) {
+      console.log(`  ${c.green}[✓]${c.reset} ${cmd}: ${bin}`);
+    } else {
+      console.log(`  ${c.yellow}[!]${c.reset} ${cmd}: Not found`);
+    }
+  }
+
+  const skillCount = fs.existsSync(repoSkills)
+    ? fs.readdirSync(repoSkills, { withFileTypes: true }).filter((d) => d.isDirectory()).length
+    : 0;
+  console.log(`\n${c.bold}Repository & Canonical Skills:${c.reset}`);
+  console.log(`  ${c.green}[✓]${c.reset} Repo Root: ${REPO_DIR} (${skillCount} skills)`);
+
+  if (fs.existsSync(canonicalSkills)) {
+    console.log(`  ${c.green}[✓]${c.reset} Skills Root: ${canonicalSkills} -> ${fs.realpathSync(canonicalSkills)}`);
+  } else {
+    console.log(`  ${c.red}[✗]${c.reset} Skills Root: ${canonicalSkills} missing`);
+  }
+
+  console.log(`\n${c.bold}Registered Harnesses (from harnesses.json):${c.reset}`);
+  for (const [id, h] of Object.entries(cfg.harnesses)) {
+    const bins = Array.isArray(h.bin) ? h.bin : h.bin ? [h.bin] : [];
+    const foundBin = bins.map(getCommandPath).find(Boolean);
+    const binStatus =
+      bins.length === 0
+        ? ""
+        : foundBin
+          ? `${c.green}installed (${foundBin})${c.reset}`
+          : `${c.yellow}CLI not on PATH${c.reset}`;
+
+    let skillStatus = "";
+    if (h.skillsPath) {
+      const sp = expandHome(h.skillsPath);
+      try {
+        const lstat = fs.lstatSync(sp);
+        const real = fs.realpathSync(sp);
+        if (lstat.isSymbolicLink() && real === fs.realpathSync(repoSkills)) {
+          skillStatus = `${c.green}skills linked (${h.skillsPath})${c.reset}`;
+        } else {
+          skillStatus = `${c.yellow}exists but not linked to ~/skills (${h.skillsPath})${c.reset}`;
+        }
+      } catch {
+        skillStatus = `${c.red}skills not linked (${h.skillsPath})${c.reset}`;
+      }
+    }
+
+    const parts = [binStatus, skillStatus].filter(Boolean).join(" | ");
+    console.log(`  ${c.green}[•]${c.reset} ${h.name.padEnd(24)} ${parts}`);
+  }
+
+  console.log("\n==========================================================\n");
+}
+
+// ========================================================
+// 6. CAPTURE / SYNC (Live App Settings -> Repo -> GitHub)
+// ========================================================
+export async function runSync(args = [], rl = null) {
+  let autoPush = false;
+  let customMsg = "";
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--push" || args[i] === "-p") {
+      autoPush = true;
+    } else if (args[i] === "-m" || args[i] === "--message") {
+      customMsg = args[++i] || "";
+    } else if (!customMsg) {
+      customMsg = args[i];
+    }
+  }
+
+  console.log("\n==========================================================");
+  console.log("  🔄 Capture & Sync Settings to ~/agents Repository       ");
+  console.log("==========================================================\n");
+
+  const cfg = loadHarnessesConfig();
+
+  // 1. Capture Pi settings.json (strip volatile keys)
+  const piTarget = expandHome(cfg.harnesses.pi?.targetDir || "~/.pi/agent");
+  const piRepoCfg = path.join(REPO_DIR, cfg.harnesses.pi?.configDir || "configs/pi");
+  const piSettingsLive = path.join(piTarget, "settings.json");
+  if (fs.existsSync(piSettingsLive)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(piSettingsLive, "utf8"));
+      delete data.lastChangelogVersion;
+      fs.mkdirSync(piRepoCfg, { recursive: true });
+      fs.writeFileSync(path.join(piRepoCfg, "settings.json"), JSON.stringify(data, null, 2) + "\n", "utf8");
+      console.log(`   ${c.green}[✓]${c.reset} configs/pi/settings.json (volatile keys stripped)`);
+    } catch (e) {
+      console.error(`   ${c.red}[!]${c.reset} Failed parsing Pi settings.json:`, e.message);
+    }
+  }
+
+  // 2. Capture T3 Code settings (strip secrets & volatile keys)
+  const t3Target = expandHome(cfg.harnesses.t3?.targetDir || "~/.t3/userdata");
+  const t3RepoCfg = path.join(REPO_DIR, cfg.harnesses.t3?.configDir || "configs/t3");
+  if (fs.existsSync(t3Target)) {
+    fs.mkdirSync(t3RepoCfg, { recursive: true });
+
+    const clientLive = path.join(t3Target, "client-settings.json");
+    if (fs.existsSync(clientLive)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(clientLive, "utf8"));
+        for (const k of ["onboardingCompletedAt", "dismissedProviderUpdateNotificationKeys"]) {
+          delete data[k];
+        }
+        fs.writeFileSync(path.join(t3RepoCfg, "client-settings.json"), JSON.stringify(data, null, 2) + "\n", "utf8");
+        console.log(`   ${c.green}[✓]${c.reset} configs/t3/client-settings.json (volatile keys stripped)`);
+      } catch (e) {
+        console.error(`   ${c.red}[!]${c.reset} Failed parsing T3 client-settings.json:`, e.message);
+      }
+    }
+
+    const settingsLive = path.join(t3Target, "settings.json");
+    if (fs.existsSync(settingsLive)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(settingsLive, "utf8"));
+        if (data.providerInstances) {
+          for (const p of Object.values(data.providerInstances)) {
+            if (p && p.config && typeof p.config.apiKey === "string") {
+              p.config.apiKey = "";
+            }
+          }
+        }
+        delete data.defaultThemeSetAt;
+        fs.writeFileSync(path.join(t3RepoCfg, "settings.json"), JSON.stringify(data, null, 2) + "\n", "utf8");
+        console.log(`   ${c.green}[✓]${c.reset} configs/t3/settings.json (secrets sanitized)`);
+      } catch (e) {
+        console.error(`   ${c.red}[!]${c.reset} Failed parsing T3 settings.json:`, e.message);
+      }
+    }
+  }
+
+  // 3. Check Git status in ~/agents
+  const statusOut = runCmd("git", ["-C", REPO_DIR, "status", "--porcelain"], { silent: true }).stdout?.trim();
+  if (!statusOut) {
+    console.log("\n:: Everything is already in sync with Git (no changes detected).");
+    return;
+  }
+
+  console.log("\n:: Detected changes in ~/agents:");
+  runCmd("git", ["-C", REPO_DIR, "status", "--short"]);
+
+  let shouldPush = autoPush;
+  if (!shouldPush && rl) {
+    const ans = await ask(rl, "\n:: Commit and push these changes to GitHub now? [y/N]: ", "N");
+    shouldPush = /^[Yy]/.test(ans);
+  }
+
+  if (shouldPush) {
+    const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+    const msg = customMsg || `chore: sync skills and harness configs [${now}]`;
+    runCmd("git", ["-C", REPO_DIR, "add", "harnesses.json", "skills", "configs"]);
+    const diffCached = runCmd("git", ["-C", REPO_DIR, "diff", "--cached", "--quiet"]);
+    if (diffCached.status === 0) {
+      console.log(":: No sync-target changes to commit.");
+      return;
+    }
+    runCmd("git", ["-C", REPO_DIR, "commit", "-m", msg]);
+    runCmd("git", ["-C", REPO_DIR, "push", "origin", "main"]);
+    console.log(`\n${c.green}✨ Changes committed and pushed to GitHub!${c.reset}`);
+  }
+}
+
+// ========================================================
+// 7. EXPLICIT UPDATE COMMAND (pi-update)
+// ========================================================
+export function runUpdate() {
+  console.log("\n==========================================================");
+  console.log("  ⬆️  Updating Repo, Pi Coding Agent & Extensions         ");
+  console.log("==========================================================\n");
+
+  console.log(":: 1/3 Pulling latest changes in ~/agents...");
+  runCmd("git", ["-C", REPO_DIR, "pull", "--ff-only"]);
+
+  console.log("\n:: 2/3 Updating @earendil-works/pi-coding-agent...");
+  runCmd("npm", ["install", "-g", "@earendil-works/pi-coding-agent"]);
+
+  const cfg = loadHarnessesConfig();
+  const piTarget = expandHome(cfg.harnesses.pi?.targetDir || "~/.pi/agent");
+  if (commandExists("pi") && fs.existsSync(piTarget)) {
+    console.log("\n:: 3/3 Updating Pi extensions...");
+    runCmd("pi", ["update", "--extensions"], { cwd: piTarget });
+  }
+
+  linkAllSkills();
+  console.log(`\n${c.green}✨ Update complete!${c.reset}`);
+}
+
+// ========================================================
+// 8. MODULAR INSTALL / APPLY
+// ========================================================
+export async function runInstall({ modules = ["skills", "pi", "t3"], rl = null, applyOnly = false } = {}) {
+  const set = new Set(modules.map((m) => m.trim().toLowerCase()));
+
+  if (set.has("skills")) {
+    linkAllSkills();
+  }
+  if (set.has("pi")) {
+    setupPi({ installCli: !applyOnly });
+  }
+  if (set.has("t3")) {
+    await setupT3({ rl, askInstall: !applyOnly });
+  }
+  installGlobalBinWrappers();
+  console.log(`\n${c.green}✨ Setup completed successfully!${c.reset}\n`);
+}
+
+// ========================================================
+// 9. UNINSTALL
+// ========================================================
+export async function runUninstall(rl) {
+  const ans = await ask(rl, ":: Are you sure you want to remove symlinks, Pi Agent, and T3 Code? [y/N]: ", "N");
+  if (!/^[Yy]/.test(ans)) {
+    console.log(":: Uninstall cancelled.");
+    return;
+  }
+
+  const cfg = loadHarnessesConfig();
+  for (const h of Object.values(cfg.harnesses)) {
+    if (h.skillsPath) {
+      const sp = expandHome(h.skillsPath);
+      try {
+        if (fs.lstatSync(sp).isSymbolicLink()) fs.unlinkSync(sp);
+      } catch {}
+    }
+  }
+  const canonicalSkills = expandHome(cfg.skillsRoot || "~/skills");
+  try {
+    if (fs.lstatSync(canonicalSkills).isSymbolicLink()) fs.unlinkSync(canonicalSkills);
+  } catch {}
+
+  runCmd("npm", ["uninstall", "-g", "@earendil-works/pi-coding-agent"]);
+  console.log(`\n${c.green}✨ Uninstalled symlinks and Pi CLI. (Your ~/agents repo was preserved).${c.reset}`);
+}
+
+// ========================================================
+// CLI ENTRYPOINT
+// ========================================================
+async function main() {
+  const args = process.argv.slice(2);
+  const cmd = args[0] || "";
+
+  let onlyModules = ["skills", "pi", "t3"];
+  const onlyIdx = args.indexOf("--only");
+  if (onlyIdx !== -1 && args[onlyIdx + 1]) {
+    onlyModules = args[onlyIdx + 1].split(",");
+  }
+
+  if (cmd === "--doctor" || cmd === "-d" || cmd === "doctor") {
+    runDoctor();
+    return;
+  }
+  if (cmd === "--update" || cmd === "-u" || cmd === "update") {
+    runUpdate();
+    return;
+  }
+  if (cmd === "--apply" || cmd === "apply") {
+    await runInstall({ modules: onlyModules, applyOnly: true });
+    return;
+  }
+  if (cmd === "--help" || cmd === "-h" || cmd === "help") {
+    console.log(`Usage: pi-setup [COMMAND] [OPTIONS]
+
+Commands:
+  (none)                  Interactive modular manager menu
+  -i, --install           Install & configure modules (default: skills,pi,t3)
+  --apply                 Link skills and apply config templates without installing packages
+  -u, --update            Update ~/agents repo, Pi CLI, and Pi extensions (pi-update)
+  -s, --sync [--push]     Capture sanitized live settings into ~/agents (pi-sync)
+  -d, --doctor            Check system health and all harness skill symlinks (pi-doctor)
+  --uninstall             Unlink skills and uninstall Pi CLI
+
+Options:
+  --only <m1,m2>          Select specific modules: skills, pi, t3 (e.g. --only skills,t3)`);
+    return;
+  }
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    if (cmd === "--sync" || cmd === "-s" || cmd === "sync") {
+      await runSync(args.slice(1), rl);
+      return;
+    }
+    if (cmd === "--install" || cmd === "-i" || cmd === "install") {
+      await runInstall({ modules: onlyModules, rl });
+      return;
+    }
+    if (cmd === "--uninstall" || cmd === "uninstall") {
+      await runUninstall(rl);
+      return;
+    }
+
+    console.log("==========================================================");
+    console.log("  🚀 Universal AI Harness & Skills Manager (~/agents)     ");
+    console.log("==========================================================\n");
+    console.log("Select an action:");
+    console.log("  1) Install / Configure All (Skills + Pi + T3 Code)");
+    console.log("  2) Link Universal Skills Only (~/skills -> agy, opencode, pi, t3)");
+    console.log("  3) Update Pi & Extensions (pi-update)");
+    console.log("  4) Capture & Sync Live Settings to GitHub (pi-sync)");
+    console.log("  5) Run System Health Check (pi-doctor)");
+    console.log("  6) Uninstall");
+    console.log("  7) Exit\n");
+
+    const choice = await ask(rl, "Enter choice [1-7] (default: 1): ", "1");
+    switch (choice) {
+      case "1":
+        await runInstall({ modules: ["skills", "pi", "t3"], rl });
+        break;
+      case "2":
+        await runInstall({ modules: ["skills"], rl, applyOnly: true });
+        break;
+      case "3":
+        runUpdate();
+        break;
+      case "4":
+        await runSync([], rl);
+        break;
+      case "5":
+        runDoctor();
+        break;
+      case "6":
+        await runUninstall(rl);
+        break;
+      case "7":
+        console.log(":: Exiting.");
+        break;
+      default:
+        console.error(":: Invalid choice.");
+        process.exitCode = 1;
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+main();
