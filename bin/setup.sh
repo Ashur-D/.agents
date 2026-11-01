@@ -49,6 +49,13 @@ run_doctor() {
     if [ -f "$TARGET_DIR/settings.json" ]; then
         SKILL_COUNT=$(find "$TARGET_DIR/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
         echo -e "  \033[32m[✓]\033[0m Pi Config: Loaded ($SKILL_COUNT custom skills in $TARGET_DIR/skills)"
+        if [ -L "$HOME/.agents/skills" ] && [ "$(readlink "$HOME/.agents/skills")" = "$TARGET_DIR/skills" ]; then
+            echo -e "  \033[32m[✓]\033[0m Cross-Agent Skills: Linked (~/.agents/skills -> $TARGET_DIR/skills)"
+        elif [ -d "$HOME/.agents/skills" ]; then
+            echo -e "  \033[33m[!]\033[0m Cross-Agent Skills: Directory exists at ~/.agents/skills (not symlinked)"
+        else
+            echo -e "  \033[33m[!]\033[0m Cross-Agent Skills: Not linked (~/.agents/skills)"
+        fi
     else
         echo -e "  \033[31m[✗]\033[0m Pi Config: Missing ($TARGET_DIR/settings.json not found)"
     fi
@@ -352,6 +359,15 @@ run_install() {
     echo ":: Installing declared Pi extensions & themes..."
     cd "$TARGET_DIR"
     pi update --extensions || true
+
+    # Link universal Agent Skills so T3 Code & all other agents see them
+    echo ":: Linking universal Agent Skills (~/.agents/skills -> $TARGET_DIR/skills)..."
+    mkdir -p "$HOME/.agents"
+    if [ ! -e "$HOME/.agents/skills" ]; then
+        ln -s "$TARGET_DIR/skills" "$HOME/.agents/skills"
+    elif [ -L "$HOME/.agents/skills" ] && [ "$(readlink "$HOME/.agents/skills")" != "$TARGET_DIR/skills" ]; then
+        ln -sf "$TARGET_DIR/skills" "$HOME/.agents/skills"
+    fi
 
     # 4. Optional: Configure T3 Code with Pi as default engine
     echo ""

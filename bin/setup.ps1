@@ -67,6 +67,12 @@ function Invoke-Doctor {
             $skillsCount = (Get-ChildItem -Directory "$TARGET_DIR\skills").Count
         }
         Write-Host "  [✓] Pi Config: Loaded ($skillsCount custom skills in $TARGET_DIR\skills)" -ForegroundColor Green
+        $agentsSkills = Join-Path $HOME ".agents\skills"
+        if (Test-Path $agentsSkills) {
+            Write-Host "  [✓] Cross-Agent Skills: Active ($HOME\.agents\skills)" -ForegroundColor Green
+        } else {
+            Write-Host "  [!] Cross-Agent Skills: Not linked ($HOME\.agents\skills)" -ForegroundColor Yellow
+        }
     } else {
         Write-Host "  [✗] Pi Config: Missing ($TARGET_DIR\settings.json not found)" -ForegroundColor Red
     }
@@ -262,6 +268,21 @@ function Invoke-Install {
     Set-Location $TARGET_DIR
     pi update --extensions -ErrorAction SilentlyContinue
 
+
+    # Link universal Agent Skills (~/.agents/skills) so T3 Code & all agents see them
+    Write-Host ":: Linking universal Agent Skills ($HOME\.agents\skills)..." -ForegroundColor Cyan
+    $agentsDir = Join-Path $HOME ".agents"
+    if (-not (Test-Path $agentsDir)) {
+        New-Item -ItemType Directory -Force -Path $agentsDir | Out-Null
+    }
+    $agentsSkills = Join-Path $HOME ".agents\skills"
+    if (-not (Test-Path $agentsSkills)) {
+        try {
+            New-Item -ItemType SymbolicLink -Path $agentsSkills -Target "$TARGET_DIR\skills" -Force | Out-Null
+        } catch {
+            Copy-Item -Recurse -Force "$TARGET_DIR\skills" $agentsSkills -ErrorAction SilentlyContinue
+        }
+    }
     # 4. Optional: Configure T3 Code with Pi as default engine
     Write-Host ""
     Write-Host ":: Step 4/4: T3 Code integration..." -ForegroundColor Cyan
