@@ -1,29 +1,28 @@
 {
-  "skillsRoot": "~/skills",
+  "skillsRoot": "~/.agents/skills",
   "harnesses": {
-    "universal": {
-      "name": "Universal Agent Skills",
-      "skillsPath": "~/.agents/skills"
-    },
-    "agy": {
-      "name": "Antigravity (Gemini)",
-      "skillsPath": "~/.gemini/config/skills"
+    "pi": {
+      "name": "Pi Coding Agent",
+      "bin": "pi",
+      "skillsMode": "native",
+      "configDir": "configs/pi",
+      "targetDir": "~/.pi/agent"
     },
     "opencode": {
       "name": "OpenCode",
       "bin": "opencode",
-      "skillsPath": "~/.config/opencode/skills"
+      "skillsMode": "config",
+      "configFile": "~/.config/opencode/opencode.json"
     },
-    "pi": {
-      "name": "Pi Coding Agent",
-      "bin": "pi",
-      "skillsPath": "~/.pi/agent/skills",
-      "configDir": "configs/pi",
-      "targetDir": "~/.pi/agent"
+    "agy": {
+      "name": "Antigravity (Gemini)",
+      "skillsMode": "symlink",
+      "skillsPath": "~/.gemini/config/skills"
     },
     "t3": {
       "name": "T3 Code",
       "bin": ["t3code", "t3"],
+      "skillsMode": "delegated",
       "targetDir": "~/.t3/userdata"
     }
   }

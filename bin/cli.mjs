@@ -96,24 +96,46 @@ async function ask(rl, promptText, defaultVal = "") {
 }
 
 // ========================================================
-// 1. MODULE: SKILLS (Universal ~/skills + Harness Links)
+// 1. MODULE: SKILLS (~/.agents/skills standard)
 // ========================================================
 export function linkAllSkills() {
   const cfg = loadHarnessesConfig();
   const repoSkills = path.join(REPO_DIR, "skills");
-  const canonicalSkills = expandHome(cfg.skillsRoot || "~/skills");
+  const canonicalRoot = cfg.skillsRoot || "~/.agents/skills";
+  const canonicalSkills = expandHome(canonicalRoot);
 
-  console.log(`\n${c.cyan}:: Linking universal skills -> ${canonicalSkills}...${c.reset}`);
-  if (canonicalSkills !== repoSkills) {
+  console.log(`\n${c.cyan}:: Configuring Universal Agent Skills (${canonicalRoot})...${c.reset}`);
+  if (path.resolve(canonicalSkills) !== path.resolve(repoSkills)) {
     ensureSymlink(repoSkills, canonicalSkills);
-    console.log(`   ${c.green}[✓]${c.reset} ${cfg.skillsRoot} -> ${repoSkills}`);
+    console.log(`   ${c.green}[✓]${c.reset} ${canonicalRoot} -> ${repoSkills}`);
+  } else {
+    console.log(`   ${c.green}[✓]${c.reset} Canonical directory ready: ${canonicalSkills}`);
   }
 
   for (const h of Object.values(cfg.harnesses)) {
-    if (!h.skillsPath) continue;
-    const dest = expandHome(h.skillsPath);
-    ensureSymlink(canonicalSkills, dest);
-    console.log(`   ${c.green}[✓]${c.reset} ${h.name} (${h.skillsPath} -> ${cfg.skillsRoot})`);
+    if (h.skillsMode === "native") {
+      console.log(`   ${c.green}[✓]${c.reset} ${h.name}: natively scans ${canonicalRoot} (0 symlinks)`);
+    } else if (h.skillsMode === "config" && h.configFile) {
+      const cfgPath = expandHome(h.configFile);
+      fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
+      let existing = {};
+      if (fs.existsSync(cfgPath)) {
+        try {
+          existing = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+        } catch {}
+      }
+      const skillsArr = Array.isArray(existing.skills) ? existing.skills : [];
+      if (!skillsArr.includes(canonicalRoot) && !skillsArr.includes(canonicalSkills)) {
+        skillsArr.push(canonicalRoot);
+      }
+      existing.skills = skillsArr;
+      fs.writeFileSync(cfgPath, JSON.stringify(existing, null, 2) + "\n", "utf8");
+      console.log(`   ${c.green}[✓]${c.reset} ${h.name}: configured skills=[${canonicalRoot}] in ${h.configFile} (0 symlinks)`);
+    } else if (h.skillsPath) {
+      const dest = expandHome(h.skillsPath);
+      ensureSymlink(canonicalSkills, dest);
+      console.log(`   ${c.green}[✓]${c.reset} ${h.name}: linked ${h.skillsPath} -> ${canonicalRoot}`);
+    }
   }
 }
 
@@ -141,6 +163,14 @@ export function setupPi({ installCli = true } = {}) {
 
   fs.mkdirSync(targetDir, { recursive: true });
 
+  // Remove legacy ~/.pi/agent/skills symlink if present so Pi doesn't double-scan ~/.agents/skills
+  const legacyPiSkills = path.join(targetDir, "skills");
+  try {
+    if (fs.lstatSync(legacyPiSkills).isSymbolicLink()) {
+      fs.unlinkSync(legacyPiSkills);
+    }
+  } catch {}
+
   // Symlink static files (zentui.json & extensions)
   const zentuiSrc = path.join(srcDir, "zentui.json");
   if (fs.existsSync(zentuiSrc)) {
@@ -158,11 +188,11 @@ export function setupPi({ installCli = true } = {}) {
     }
   }
 
-  // One-way template merge for settings.json (preserves runtime keys like lastChangelogVersion)
-  const settingsSrc = path.join(srcDir, "settings.json");
+  // Merge settings.json template preserving volatile keys
+  const settingsTemplatePath = path.join(srcDir, "settings.json");
   const settingsDest = path.join(targetDir, "settings.json");
-  if (fs.existsSync(settingsSrc)) {
-    const template = JSON.parse(fs.readFileSync(settingsSrc, "utf8"));
+  if (fs.existsSync(settingsTemplatePath)) {
+    const template = JSON.parse(fs.readFileSync(settingsTemplatePath, "utf8"));
     let existing = {};
     if (fs.existsSync(settingsDest)) {
       try {
@@ -222,7 +252,6 @@ export async function setupT3({ rl = null, askInstall = true } = {}) {
     console.log(`   ${c.green}[✓]${c.reset} T3 Code binary detected`);
   }
 
-  // Ensure Pi provider is enabled in ~/.t3/userdata/settings.json without syncing/overwriting UI preferences
   fs.mkdirSync(userdata, { recursive: true });
   const settingsDest = path.join(userdata, "settings.json");
   let existing = {};
@@ -270,7 +299,8 @@ export function installGlobalBinWrappers() {
 // ========================================================
 export function runDoctor() {
   const cfg = loadHarnessesConfig();
-  const canonicalSkills = expandHome(cfg.skillsRoot || "~/skills");
+  const canonicalRoot = cfg.skillsRoot || "~/.agents/skills";
+  const canonicalSkills = expandHome(canonicalRoot);
   const repoSkills = path.join(REPO_DIR, "skills");
 
   console.log("\n==========================================================");
@@ -291,13 +321,8 @@ export function runDoctor() {
     ? fs.readdirSync(repoSkills, { withFileTypes: true }).filter((d) => d.isDirectory()).length
     : 0;
   console.log(`\n${c.bold}Repository & Canonical Skills:${c.reset}`);
-  console.log(`  ${c.green}[✓]${c.reset} Repo Root: ${REPO_DIR} (${skillCount} skills)`);
-
-  if (fs.existsSync(canonicalSkills)) {
-    console.log(`  ${c.green}[✓]${c.reset} Skills Root: ${canonicalSkills} -> ${fs.realpathSync(canonicalSkills)}`);
-  } else {
-    console.log(`  ${c.red}[✗]${c.reset} Skills Root: ${canonicalSkills} missing`);
-  }
+  console.log(`  ${c.green}[✓]${c.reset} Repo Root:   ${REPO_DIR}`);
+  console.log(`  ${c.green}[✓]${c.reset} Skills Root: ${canonicalSkills} (${skillCount} skills)`);
 
   console.log(`\n${c.bold}Registered Harnesses (from harnesses.json):${c.reset}`);
   for (const h of Object.values(cfg.harnesses)) {
@@ -311,18 +336,34 @@ export function runDoctor() {
           : `${c.yellow}CLI not on PATH${c.reset}`;
 
     let skillStatus = "";
-    if (h.skillsPath) {
+    if (h.skillsMode === "native") {
+      skillStatus = `${c.green}native scan (${canonicalRoot})${c.reset}`;
+    } else if (h.skillsMode === "delegated") {
+      skillStatus = `${c.green}delegates to active provider${c.reset}`;
+    } else if (h.skillsMode === "config" && h.configFile) {
+      const cfgPath = expandHome(h.configFile);
+      let ok = false;
+      if (fs.existsSync(cfgPath)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+          ok = Array.isArray(parsed.skills) && parsed.skills.includes(canonicalRoot);
+        } catch {}
+      }
+      skillStatus = ok
+        ? `${c.green}configured in ${h.configFile}${c.reset}`
+        : `${c.yellow}not configured in ${h.configFile}${c.reset}`;
+    } else if (h.skillsPath) {
       const sp = expandHome(h.skillsPath);
       try {
         const lstat = fs.lstatSync(sp);
         const real = fs.realpathSync(sp);
         if (lstat.isSymbolicLink() && real === fs.realpathSync(repoSkills)) {
-          skillStatus = `${c.green}skills linked (${h.skillsPath})${c.reset}`;
+          skillStatus = `${c.green}symlinked (${h.skillsPath} -> ${canonicalRoot})${c.reset}`;
         } else {
-          skillStatus = `${c.yellow}exists but not linked to ~/skills (${h.skillsPath})${c.reset}`;
+          skillStatus = `${c.yellow}exists but not linked to ${canonicalRoot}${c.reset}`;
         }
       } catch {
-        skillStatus = `${c.red}skills not linked (${h.skillsPath})${c.reset}`;
+        skillStatus = `${c.red}not linked (${h.skillsPath})${c.reset}`;
       }
     }
 
@@ -351,68 +392,74 @@ export async function runSync(args = [], rl = null) {
   }
 
   console.log("\n==========================================================");
-  console.log("  🔄 Sync Skills & Pi Settings to ~/agents Repository     ");
+  console.log("  🔄 Sync Skills & Pi Settings to ~/.agents Repository    ");
   console.log("==========================================================\n");
 
   const cfg = loadHarnessesConfig();
-
-  // Capture Pi settings.json (strip volatile keys)
   const piTarget = expandHome(cfg.harnesses.pi?.targetDir || "~/.pi/agent");
-  const piRepoCfg = path.join(REPO_DIR, cfg.harnesses.pi?.configDir || "configs/pi");
-  const piSettingsLive = path.join(piTarget, "settings.json");
-  if (fs.existsSync(piSettingsLive)) {
+  const piSrc = path.join(REPO_DIR, cfg.harnesses.pi?.configDir || "configs/pi");
+  const liveSettings = path.join(piTarget, "settings.json");
+
+  if (fs.existsSync(liveSettings)) {
     try {
-      const data = JSON.parse(fs.readFileSync(piSettingsLive, "utf8"));
+      const data = JSON.parse(fs.readFileSync(liveSettings, "utf8"));
+      delete data.defaultProvider;
+      delete data.defaultModel;
+      delete data.defaultThinkingLevel;
       delete data.lastChangelogVersion;
-      fs.mkdirSync(piRepoCfg, { recursive: true });
-      fs.writeFileSync(path.join(piRepoCfg, "settings.json"), JSON.stringify(data, null, 2) + "\n", "utf8");
-      console.log(`   ${c.green}[✓]${c.reset} configs/pi/settings.json (volatile keys stripped)`);
+      fs.mkdirSync(piSrc, { recursive: true });
+      fs.writeFileSync(path.join(piSrc, "settings.json"), JSON.stringify(data, null, 2) + "\n", "utf8");
+      console.log(`  ${c.green}[✓]${c.reset} Captured ~/.pi/agent/settings.json`);
     } catch (e) {
-      console.error(`   ${c.red}[!]${c.reset} Failed parsing Pi settings.json:`, e.message);
+      console.warn(`  ${c.yellow}[!]${c.reset} Could not parse ~/.pi/agent/settings.json: ${e.message}`);
     }
   }
 
-  // Check Git status in ~/agents
-  const statusOut = runCmd("git", ["-C", REPO_DIR, "status", "--porcelain"], { silent: true }).stdout?.trim();
+  const statusOut = spawnSync("git", ["status", "--porcelain"], { cwd: REPO_DIR, encoding: "utf8" }).stdout.trim();
   if (!statusOut) {
-    console.log("\n:: Everything is already in sync with Git (no changes detected).");
+    console.log(`\n${c.green}✨ Everything is clean and up-to-date. Nothing to commit.${c.reset}\n`);
     return;
   }
 
-  console.log("\n:: Detected changes in ~/agents:");
-  runCmd("git", ["-C", REPO_DIR, "status", "--short"]);
+  console.log("\n:: Changes detected in ~/.agents:");
+  runCmd("git", ["status", "-s"], { cwd: REPO_DIR });
 
-  let shouldPush = autoPush;
-  if (!shouldPush && rl) {
-    const ans = await ask(rl, "\n:: Commit and push these changes to GitHub now? [y/N]: ", "N");
-    shouldPush = /^[Yy]/.test(ans);
+  if (!customMsg) {
+    const now = new Date().toISOString().replace("T", " ").slice(0, 16);
+    const defaultMsg = `chore: sync skills & config (${now})`;
+    if (autoPush) {
+      customMsg = defaultMsg;
+    } else {
+      customMsg = await ask(rl, `\nCommit message [${defaultMsg}]: `, defaultMsg);
+    }
   }
 
-  if (shouldPush) {
-    const now = new Date().toISOString().slice(0, 16).replace("T", " ");
-    const msg = customMsg || `chore: sync skills and Pi config [${now}]`;
-    runCmd("git", ["-C", REPO_DIR, "add", "harnesses.json", "skills", "configs"]);
-    const diffCached = runCmd("git", ["-C", REPO_DIR, "diff", "--cached", "--quiet"]);
-    if (diffCached.status === 0) {
-      console.log(":: No sync-target changes to commit.");
-      return;
-    }
-    runCmd("git", ["-C", REPO_DIR, "commit", "-m", msg]);
-    runCmd("git", ["-C", REPO_DIR, "push", "origin", "main"]);
-    console.log(`\n${c.green}✨ Changes committed and pushed to GitHub!${c.reset}`);
+  runCmd("git", ["add", "-A"], { cwd: REPO_DIR });
+  runCmd("git", ["commit", "-m", customMsg], { cwd: REPO_DIR });
+
+  if (!autoPush) {
+    const ans = await ask(rl, "\n:: Push changes to GitHub now? [Y/n]: ", "Y");
+    autoPush = /^[Yy]/.test(ans);
+  }
+
+  if (autoPush) {
+    console.log(":: Pulling latest with rebase & pushing to origin...");
+    runCmd("git", ["pull", "--rebase", "--autostash"], { cwd: REPO_DIR });
+    runCmd("git", ["push"], { cwd: REPO_DIR });
+    console.log(`\n${c.green}✨ Successfully synced and pushed to GitHub!${c.reset}\n`);
   }
 }
 
 // ========================================================
-// 7. EXPLICIT UPDATE COMMAND (pi-update)
+// 7. UPDATE
 // ========================================================
 export function runUpdate() {
   console.log("\n==========================================================");
-  console.log("  ⬆️  Updating Repo, Pi Coding Agent & Extensions         ");
+  console.log("  ⬆️  Updating ~/.agents, Pi CLI & Extensions             ");
   console.log("==========================================================\n");
 
-  console.log(":: 1/3 Pulling latest changes in ~/agents...");
-  runCmd("git", ["-C", REPO_DIR, "pull", "--ff-only"]);
+  console.log(":: 1/3 Pulling latest ~/.agents repository...");
+  runCmd("git", ["pull", "--rebase", "--autostash"], { cwd: REPO_DIR });
 
   console.log("\n:: 2/3 Updating @earendil-works/pi-coding-agent...");
   runCmd("npm", ["install", "-g", "@earendil-works/pi-coding-agent"]);
@@ -466,13 +513,9 @@ export async function runUninstall(rl) {
       } catch {}
     }
   }
-  const canonicalSkills = expandHome(cfg.skillsRoot || "~/skills");
-  try {
-    if (fs.lstatSync(canonicalSkills).isSymbolicLink()) fs.unlinkSync(canonicalSkills);
-  } catch {}
 
   runCmd("npm", ["uninstall", "-g", "@earendil-works/pi-coding-agent"]);
-  console.log(`\n${c.green}✨ Uninstalled symlinks and Pi CLI. (Your ~/agents repo was preserved).${c.reset}`);
+  console.log(`\n${c.green}✨ Uninstalled symlinks and Pi CLI. (Your ~/.agents repo was preserved).${c.reset}`);
 }
 
 // ========================================================
@@ -506,11 +549,11 @@ async function main() {
 Commands:
   (none)                  Interactive modular manager menu
   -i, --install           Install & configure modules (default: skills,pi,t3)
-  --apply                 Link skills and apply Pi config without installing packages
-  -u, --update            Update ~/agents repo, Pi CLI, and Pi extensions (pi-update)
+  --apply                 Configure skills and apply Pi config without installing packages
+  -u, --update            Update ~/.agents repo, Pi CLI, and Pi extensions (pi-update)
   -s, --sync [--push]     Sync skills and Pi settings to GitHub (pi-sync)
-  -d, --doctor            Check system health and all harness skill symlinks (pi-doctor)
-  --uninstall             Unlink skills and uninstall Pi CLI
+  -d, --doctor            Check system health and all harness skill configurations (pi-doctor)
+  --uninstall             Unlink compatibility symlinks and uninstall Pi CLI
 
 Options:
   --only <m1,m2>          Select specific modules: skills, pi, t3 (e.g. --only skills,t3)`);
@@ -533,11 +576,11 @@ Options:
     }
 
     console.log("==========================================================");
-    console.log("  🚀 Universal AI Harness & Skills Manager (~/agents)     ");
+    console.log("  🚀 Universal AI Harness & Skills Manager (~/.agents)    ");
     console.log("==========================================================\n");
     console.log("Select an action:");
     console.log("  1) Install / Configure All (Skills + Pi + Optional T3 Code)");
-    console.log("  2) Link Universal Skills Only (~/skills -> agy, opencode, pi, t3)");
+    console.log("  2) Configure Universal Skills Only (~/.agents/skills)");
     console.log("  3) Update Pi & Extensions (pi-update)");
     console.log("  4) Sync Skills & Pi Config to GitHub (pi-sync)");
     console.log("  5) Run System Health Check (pi-doctor)");
