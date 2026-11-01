@@ -599,13 +599,13 @@ Options:
     console.log("==========================================================");
     console.log("  🚀 Universal AI Harness & Skills Manager (~/.agents)    ");
     console.log("==========================================================\n");
-    console.log("Select an action:");
-    console.log("  1) Install / Configure All (Skills + Pi + Optional T3 Code)");
-    console.log("  2) Configure Universal Skills Only (~/.agents/skills)");
-    console.log("  3) Update Pi & Extensions (agents update)");
+    console.log("Select an action (or run directly via CLI):");
+    console.log("  1) Install & Configure Modules       (agents setup [--only skills,pi,t3])");
+    console.log("  2) Apply Skills & Configs Only       (agents apply [--only skills,pi,t3])");
+    console.log("  3) Update Repo, Pi CLI & Extensions  (agents update)");
     console.log("  4) Sync Skills & Pi Config to GitHub (agents sync)");
-    console.log("  5) Run System Health Check (agents doctor)");
-    console.log("  6) Uninstall");
+    console.log("  5) Run System Health Check           (agents doctor)");
+    console.log("  6) Uninstall                         (agents uninstall)");
     console.log("  7) Exit\n");
 
     const choice = await ask(rl, "Enter choice [1-7] (default: 1): ", "1");
@@ -614,10 +614,10 @@ Options:
         await runInstall({ modules: ["skills", "pi", "t3"], rl });
         break;
       case "2":
-        await runInstall({ modules: ["skills"], rl, applyOnly: true });
+        await runInstall({ modules: ["skills", "pi", "t3"], rl, applyOnly: true });
         break;
       case "3":
-        runUpdate();
+        await runUpdate(rl);
         break;
       case "4":
         await runSync([], rl);
