@@ -155,23 +155,24 @@ export default function (pi: ExtensionAPI) {
       const piVersion = getPiVersion();
 
       // ─── Loaded Skills ──────────────────────────────────────────────
-      const userSkillsDir = join(home, ".pi", "agent", "skills");
-      let skills: string[] = [];
-      if (existsSync(userSkillsDir)) {
+      const skillDirs = [
+        join(home, ".agents", "skills"),
+        join(home, ".pi", "agent", "skills"),
+      ];
+      const skillSet = new Set<string>();
+      for (const dir of skillDirs) {
+        if (!existsSync(dir)) continue;
         try {
-          skills = readdirSync(userSkillsDir)
-            .filter((f) => {
-              try {
-                return statSync(join(userSkillsDir, f)).isDirectory();
-              } catch {
-                return false;
+          for (const f of readdirSync(dir)) {
+            try {
+              if (statSync(join(dir, f)).isDirectory()) {
+                skillSet.add(f);
               }
-            })
-            .sort();
-        } catch {
-          skills = [];
-        }
+            } catch {}
+          }
+        } catch {}
       }
+      const skills: string[] = [...skillSet].sort();
 
       // ─── Loaded Extensions ──────────────────────────────────────────
       const settingsPath = join(home, ".pi", "agent", "settings.json");
