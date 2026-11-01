@@ -32,6 +32,7 @@ node_modules/
 # ==========================================
 t3/desktop-settings.json
 t3/keybindings-migrations
+themes/
 
 # ==========================================
 # OS & Editor Artifacts

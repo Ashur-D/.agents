@@ -105,7 +105,7 @@ commit_sync_changes() {
     local repo="$1" msg="$2"
     local paths=()
     local p
-    for p in settings.json zentui.json skills themes t3; do
+    for p in settings.json zentui.json skills t3; do
         [ -e "$repo/$p" ] && paths+=("$p")
     done
 
