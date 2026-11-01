@@ -95,6 +95,31 @@ async function ask(rl, promptText, defaultVal = "") {
   }
 }
 
+async function ensureNpm(rl) {
+  if (commandExists("npm")) return true;
+  const ans = await ask(rl, ":: npm is not installed. Install Node.js / npm now? [Y/n]: ", "Y");
+  if (!/^[Yy]/.test(ans)) {
+    console.log(":: Skipping npm package installation (npm not installed).");
+    return false;
+  }
+  if (IS_WIN) {
+    runCmd("winget", ["install", "OpenJS.NodeJS.LTS", "--silent", "--accept-package-agreements", "--accept-source-agreements"]);
+  } else if (commandExists("pacman")) {
+    runCmd("sudo", ["pacman", "-S", "--needed", "--noconfirm", "nodejs", "npm"]);
+  } else if (commandExists("apt-get")) {
+    runCmd("sudo", ["apt-get", "update"]);
+    runCmd("sudo", ["apt-get", "install", "-y", "nodejs", "npm"]);
+  } else if (commandExists("dnf")) {
+    runCmd("sudo", ["dnf", "install", "-y", "nodejs", "npm"]);
+  } else if (commandExists("brew")) {
+    runCmd("brew", ["install", "node"]);
+  } else {
+    console.warn(":: Could not detect package manager. Please install npm manually.");
+    return false;
+  }
+  return commandExists("npm");
+}
+
 // ========================================================
 // 1. MODULE: SKILLS (~/.agents/skills standard)
 // ========================================================
@@ -142,7 +167,7 @@ export function linkAllSkills() {
 // ========================================================
 // 2. MODULE: PI CODING AGENT
 // ========================================================
-export function setupPi({ installCli = true } = {}) {
+export async function setupPi({ installCli = true, rl = null } = {}) {
   const cfg = loadHarnessesConfig();
   const piCfg = cfg.harnesses.pi;
   const targetDir = expandHome(piCfg.targetDir || "~/.pi/agent");
@@ -150,7 +175,7 @@ export function setupPi({ installCli = true } = {}) {
 
   console.log(`\n${c.cyan}:: Setting up Pi Coding Agent...${c.reset}`);
 
-  if (installCli) {
+  if (installCli && (await ensureNpm(rl))) {
     if (!IS_WIN) {
       const localBin = path.join(HOME, ".local", "bin");
       fs.mkdirSync(localBin, { recursive: true });
@@ -284,23 +309,9 @@ export function installGlobalBinWrappers() {
   fs.mkdirSync(localBin, { recursive: true });
   const cliPath = path.join(REPO_DIR, "bin", "cli.mjs");
 
-  const wrappers = {
-    "agents": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" "$@"\n`,
-    "agents-setup": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" "$@"\n`,
-    "agents-doctor": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --doctor "$@"\n`,
-    "agents-sync": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --sync --push "$@"\n`,
-    "agents-update": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --update "$@"\n`,
-    "pi-setup": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" "$@"\n`,
-    "pi-doctor": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --doctor "$@"\n`,
-    "pi-sync": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --sync --push "$@"\n`,
-    "pi-update": `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" --update "$@"\n`,
-  };
-
-  for (const [name, content] of Object.entries(wrappers)) {
-    const p = path.join(localBin, name);
-    fs.writeFileSync(p, content, { mode: 0o755 });
-  }
-  console.log(`\n${c.cyan}:: Installed CLI in ~/.local/bin:${c.reset} agents (setup, doctor, sync, update) + pi-* aliases`);
+  const agentBin = path.join(localBin, "agents");
+  fs.writeFileSync(agentBin, `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" "$@"\n`, { mode: 0o755 });
+  console.log(`\n${c.cyan}:: Installed CLI in ~/.local/bin:${c.reset} agents`);
 }
 
 // ========================================================
@@ -495,7 +506,7 @@ export async function runInstall({ modules = ["skills", "pi", "t3"], rl = null, 
     linkAllSkills();
   }
   if (set.has("pi")) {
-    setupPi({ installCli: !applyOnly });
+    await setupPi({ installCli: !applyOnly, rl });
   }
   if (set.has("t3")) {
     await setupT3({ rl, askInstall: !applyOnly });
@@ -591,9 +602,9 @@ Options:
     console.log("Select an action:");
     console.log("  1) Install / Configure All (Skills + Pi + Optional T3 Code)");
     console.log("  2) Configure Universal Skills Only (~/.agents/skills)");
-    console.log("  3) Update Pi & Extensions (pi-update)");
-    console.log("  4) Sync Skills & Pi Config to GitHub (pi-sync)");
-    console.log("  5) Run System Health Check (pi-doctor)");
+    console.log("  3) Update Pi & Extensions (agents update)");
+    console.log("  4) Sync Skills & Pi Config to GitHub (agents sync)");
+    console.log("  5) Run System Health Check (agents doctor)");
     console.log("  6) Uninstall");
     console.log("  7) Exit\n");
 

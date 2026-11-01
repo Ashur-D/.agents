@@ -12,8 +12,8 @@ Follows the `agentskills.io` (`~/.agents/skills`) standard for **Pi Coding Agent
 │   └── pi/              # Pi templates & custom-welcome extension
 └── bin/
     ├── cli.mjs          # Cross-platform modular CLI
-    ├── setup.sh         # Linux / macOS bootstrapper
-    └── setup.ps1        # Windows bootstrapper
+    ├── setup.sh         # Linux / macOS bootstrapper (prompts to install node/npm if missing)
+    └── setup.ps1        # Windows bootstrapper (prompts to install node/npm if missing)
 ```
 
 ## 🧠 How Skill Discovery Works
@@ -32,7 +32,9 @@ git clone https://github.com/Ashur-D/.agents.git ~/.agents
 
 ## 🛠️ CLI Commands
 
-- `agents` (or `agents setup` / `pi-setup`) — Interactive menu (or `agents apply`, `agents setup --only skills,t3`)
-- `agents doctor` (or `pi-doctor`) — Health check for dependencies and all harness skill configurations
-- `agents update` (or `pi-update`) — Update `~/.agents`, Pi CLI (`@earendil-works/pi-coding-agent`), and Pi extensions
-- `agents sync` (or `pi-sync`) — Sync `~/.agents/skills` and Pi settings to GitHub
+- `agents` — Interactive menu
+- `agents setup` — Install & configure modules (`--only skills,t3`, `--only skills,pi`)
+- `agents apply` — Configure skills and apply Pi config without installing packages
+- `agents doctor` — Health check for dependencies and all harness skill configurations
+- `agents update` — Update `~/.agents`, Pi CLI, and Pi extensions
+- `agents sync` — Sync `~/.agents/skills` and Pi settings to GitHub
