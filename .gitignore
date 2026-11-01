@@ -19,3 +19,7 @@ node_modules/
 *_rsa*
 auth.json
 antigravity-accounts.json
+
+# Ignore local themes (e.g. noctalia)
+themes/
+*noctalia*

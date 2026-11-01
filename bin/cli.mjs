@@ -416,6 +416,7 @@ export async function runSync(args = [], rl = null) {
       delete data.defaultModel;
       delete data.defaultThinkingLevel;
       delete data.lastChangelogVersion;
+      data.theme = "system";
       fs.mkdirSync(piSrc, { recursive: true });
       fs.writeFileSync(path.join(piSrc, "settings.json"), JSON.stringify(data, null, 2) + "\n", "utf8");
       console.log(`  ${c.green}[✓]${c.reset} Captured ~/.pi/agent/settings.json`);

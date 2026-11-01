@@ -1,5 +1,5 @@
 {
-  "theme": "dark",
+  "theme": "system",
   "packages": [
     "npm:pi-web-access",
     "npm:pi-context-view",
