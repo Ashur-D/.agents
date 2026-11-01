@@ -1,6 +1,6 @@
 {
   "lastChangelogVersion": "1.4.0",
-  "theme": "noctalia",
+  "theme": "dark",
   "packages": [
     "npm:pi-web-access",
     "npm:pi-context-view",
