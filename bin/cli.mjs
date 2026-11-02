@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { emitKeypressEvents } from "node:readline";
 import readline from "node:readline/promises";
 import { execSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -591,7 +592,7 @@ async function promptHarnessMenu(entries, rl) {
   return new Promise((resolve) => {
     const wasRaw = process.stdin.isRaw;
     process.stdout.write("\x1b[?25l");
-    readline.emitKeypressEvents(process.stdin);
+    emitKeypressEvents(process.stdin);
     process.stdin.setRawMode(true);
     process.stdin.resume();
     render();
@@ -732,7 +733,7 @@ async function promptActionMenu(actions, rl) {
   return new Promise((resolve) => {
     const wasRaw = process.stdin.isRaw;
     process.stdout.write("\x1b[?25l");
-    readline.emitKeypressEvents(process.stdin);
+    emitKeypressEvents(process.stdin);
     process.stdin.setRawMode(true);
     process.stdin.resume();
     render();
