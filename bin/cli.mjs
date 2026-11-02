@@ -102,14 +102,31 @@ function ensureSymlink(targetPath, linkPath) {
   return "linked";
 }
 
-async function ask(rl, promptText, defaultVal = "") {
-  if (!rl) return defaultVal;
+async function ask(interactive, promptText, defaultVal = "") {
+  if (!interactive) return defaultVal;
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
     const ans = (await rl.question(promptText)).trim();
     return ans || defaultVal;
   } catch {
     return defaultVal;
+  } finally {
+    rl.close();
   }
+}
+
+function stripAnsi(str) {
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+}
+
+function countPhysicalRows(lines) {
+  const cols = process.stdout.columns || 80;
+  let total = 0;
+  for (const line of lines) {
+    const visibleLen = stripAnsi(line).length;
+    total += Math.max(1, Math.ceil(visibleLen / cols));
+  }
+  return total;
 }
 
 async function ensureNpm(rl) {
@@ -566,7 +583,7 @@ function parseHarnessSelection(raw, entries) {
   return chosen;
 }
 
-async function promptHarnessMenu(entries, rl) {
+async function promptHarnessMenu(entries, interactive) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     console.log(`\n${c.bold}Select harnesses to install & configure:${c.reset}`);
     entries.forEach(([id, h], idx) => {
@@ -577,15 +594,14 @@ async function promptHarnessMenu(entries, rl) {
     });
     console.log(`  a) All harnesses (default)`);
     console.log(`  n) None (skip harnesses)\n`);
-    const raw = await ask(rl, `Enter choices (e.g. 1,3 or pi,agy or a for all) [a]: `, "a");
+    const raw = await ask(interactive, `Enter choices (e.g. 1,3 or pi,agy or a for all) [a]: `, "a");
     return parseHarnessSelection(raw, entries);
   }
 
   // Interactive arrow-key + spacebar checkbox menu
-  rl.pause();
   const selected = new Set(entries.map(([id]) => id));
   let cursor = 0;
-  let renderedLines = 0;
+  let renderedRows = 0;
 
   const badges = entries.map(([, h]) => {
     const bins = Array.isArray(h.bin) ? h.bin : h.bin ? [h.bin] : [];
@@ -594,11 +610,12 @@ async function promptHarnessMenu(entries, rl) {
   });
 
   const render = () => {
-    if (renderedLines > 0) {
-      process.stdout.write(`\x1b[${renderedLines}A\x1b[0J`);
+    if (renderedRows > 0) {
+      process.stdout.write(`\r\x1b[${renderedRows}A\r\x1b[0J`);
     }
     const lines = [
-      `${c.bold}Select harnesses to install & configure:${c.reset} ${c.cyan}(↑/↓ move, Space toggle, a all, n none, Enter confirm)${c.reset}`,
+      `${c.bold}Select harnesses to install & configure:${c.reset}`,
+      `${c.cyan}(↑/↓ move, Space toggle, a all, n none, Enter confirm)${c.reset}`,
       ...entries.map(([id, h], idx) => {
         const active = idx === cursor;
         const checked = selected.has(id);
@@ -609,7 +626,7 @@ async function promptHarnessMenu(entries, rl) {
       }),
     ];
     process.stdout.write(lines.join("\n") + "\n");
-    renderedLines = lines.length;
+    renderedRows = countPhysicalRows(lines);
   };
 
   return new Promise((resolve) => {
@@ -623,8 +640,8 @@ async function promptHarnessMenu(entries, rl) {
     const cleanup = () => {
       process.stdin.removeListener("keypress", onKeypress);
       if (process.stdin.isTTY) process.stdin.setRawMode(Boolean(wasRaw));
+      process.stdin.pause();
       process.stdout.write("\x1b[?25h");
-      rl.resume();
     };
 
     const onKeypress = (str, key = {}) => {
@@ -721,23 +738,22 @@ export async function runUninstall(rl) {
   console.log(`\n${c.green}✨ Uninstalled symlinks and Pi CLI. (Your ~/.agents repo was preserved).${c.reset}`);
 }
 
-async function promptActionMenu(actions, rl) {
+async function promptActionMenu(actions, interactive) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     console.log("Select an action (or run directly via CLI):");
     actions.forEach((a, idx) => {
       console.log(`  ${idx + 1}) ${a.label.padEnd(33)} ${a.hint}`);
     });
     console.log("");
-    return ask(rl, `Enter choice [1-${actions.length}] (default: 1): `, "1");
+    return ask(interactive, `Enter choice [1-${actions.length}] (default: 1): `, "1");
   }
 
-  rl.pause();
   let cursor = 0;
-  let renderedLines = 0;
+  let renderedRows = 0;
 
   const render = () => {
-    if (renderedLines > 0) {
-      process.stdout.write(`\x1b[${renderedLines}A\x1b[0J`);
+    if (renderedRows > 0) {
+      process.stdout.write(`\r\x1b[${renderedRows}A\r\x1b[0J`);
     }
     const lines = [
       `${c.bold}Select an action:${c.reset} ${c.cyan}(↑/↓ move, Enter select)${c.reset}`,
@@ -750,7 +766,7 @@ async function promptActionMenu(actions, rl) {
       }),
     ];
     process.stdout.write(lines.join("\n") + "\n");
-    renderedLines = lines.length;
+    renderedRows = countPhysicalRows(lines);
   };
 
   return new Promise((resolve) => {
@@ -764,8 +780,8 @@ async function promptActionMenu(actions, rl) {
     const cleanup = () => {
       process.stdin.removeListener("keypress", onKeypress);
       if (process.stdin.isTTY) process.stdin.setRawMode(Boolean(wasRaw));
+      process.stdin.pause();
       process.stdout.write("\x1b[?25h");
-      rl.resume();
     };
 
     const onKeypress = (str, key = {}) => {
@@ -833,67 +849,63 @@ Options:
     return;
   }
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    if (cmd === "--update" || cmd === "-u" || cmd === "update") {
-      await runUpdate(rl);
-      return;
-    }
-    if (cmd === "--sync" || cmd === "-s" || cmd === "sync") {
-      await runSync(args.slice(1), rl);
-      return;
-    }
-    if (cmd === "--install" || cmd === "-i" || cmd === "install" || cmd === "setup" || cmd === "--setup") {
-      await runInstall({ only: onlyModules, rl });
-      return;
-    }
-    if (cmd === "--uninstall" || cmd === "uninstall") {
-      await runUninstall(rl);
-      return;
-    }
+  const interactive = true;
+  if (cmd === "--update" || cmd === "-u" || cmd === "update") {
+    await runUpdate(interactive);
+    return;
+  }
+  if (cmd === "--sync" || cmd === "-s" || cmd === "sync") {
+    await runSync(args.slice(1), interactive);
+    return;
+  }
+  if (cmd === "--install" || cmd === "-i" || cmd === "install" || cmd === "setup" || cmd === "--setup") {
+    await runInstall({ only: onlyModules, rl: interactive });
+    return;
+  }
+  if (cmd === "--uninstall" || cmd === "uninstall") {
+    await runUninstall(interactive);
+    return;
+  }
 
-    console.log("==========================================================");
-    console.log("  🚀 Universal AI Harness & Skills Manager (~/.agents)    ");
-    console.log("==========================================================\n");
+  console.log("==========================================================");
+  console.log("  🚀 Universal AI Harness & Skills Manager (~/.agents)    ");
+  console.log("==========================================================\n");
 
-    const actions = [
-      { id: "1", label: "Install T3 Code & Harnesses", hint: "(agents setup)" },
-      { id: "2", label: "Apply Skills & Configs Only", hint: "(agents apply)" },
-      { id: "3", label: "Update Repo, Pi CLI & Extensions", hint: "(agents update)" },
-      { id: "4", label: "Sync Skills & Pi Config to GitHub", hint: "(agents sync)" },
-      { id: "5", label: "Run System Health Check", hint: "(agents doctor)" },
-      { id: "6", label: "Uninstall", hint: "(agents uninstall)" },
-      { id: "7", label: "Exit", hint: "" },
-    ];
-    const choice = await promptActionMenu(actions, rl);
-    switch (choice) {
-      case "1":
-        await runInstall({ rl });
-        break;
-      case "2":
-        await runInstall({ rl, applyOnly: true });
-        break;
-      case "3":
-        await runUpdate(rl);
-        break;
-      case "4":
-        await runSync([], rl);
-        break;
-      case "5":
-        runDoctor();
-        break;
-      case "6":
-        await runUninstall(rl);
-        break;
-      case "7":
-        console.log(":: Exiting.");
-        break;
-      default:
-        console.error(":: Invalid choice.");
-        process.exitCode = 1;
-    }
-  } finally {
-    rl.close();
+  const actions = [
+    { id: "1", label: "Install T3 Code & Harnesses", hint: "(agents setup)" },
+    { id: "2", label: "Apply Skills & Configs Only", hint: "(agents apply)" },
+    { id: "3", label: "Update Repo, Pi CLI & Extensions", hint: "(agents update)" },
+    { id: "4", label: "Sync Skills & Pi Config to GitHub", hint: "(agents sync)" },
+    { id: "5", label: "Run System Health Check", hint: "(agents doctor)" },
+    { id: "6", label: "Uninstall", hint: "(agents uninstall)" },
+    { id: "7", label: "Exit", hint: "" },
+  ];
+  const choice = await promptActionMenu(actions, interactive);
+  switch (choice) {
+    case "1":
+      await runInstall({ rl: interactive });
+      break;
+    case "2":
+      await runInstall({ rl: interactive, applyOnly: true });
+      break;
+    case "3":
+      await runUpdate(interactive);
+      break;
+    case "4":
+      await runSync([], interactive);
+      break;
+    case "5":
+      runDoctor();
+      break;
+    case "6":
+      await runUninstall(interactive);
+      break;
+    case "7":
+      console.log(":: Exiting.");
+      break;
+    default:
+      console.error(":: Invalid choice.");
+      process.exitCode = 1;
   }
 }
 
