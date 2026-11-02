@@ -522,8 +522,41 @@ export async function runUpdate(rl = null) {
 // ========================================================
 // 7. INSTALL / APPLY FLOW
 // ========================================================
+async function promptHarnessMenu(entries, rl) {
+  console.log(`\n${c.bold}Select harnesses to install & configure:${c.reset}`);
+  entries.forEach(([id, h], idx) => {
+    const bins = Array.isArray(h.bin) ? h.bin : h.bin ? [h.bin] : [];
+    const installed = bins.some(commandExists);
+    const badge = bins.length === 0 ? "" : installed ? ` ${c.green}(installed)${c.reset}` : ` ${c.yellow}(not installed)${c.reset}`;
+    console.log(`  ${idx + 1}) ${h.name.padEnd(24)} [${id}]${badge}`);
+  });
+  console.log(`  a) All harnesses (default)`);
+  console.log(`  n) None (skip harnesses)\n`);
+
+  const raw = await ask(rl, `Enter choices (e.g. 1,3 or pi,agy or a for all) [a]: `, "a");
+  const normalized = raw.trim().toLowerCase();
+  if (!normalized || normalized === "a" || normalized === "all" || normalized === "*") {
+    return new Set(entries.map(([id]) => id));
+  }
+  if (normalized === "n" || normalized === "none" || normalized === "0") {
+    return new Set();
+  }
+
+  const chosen = new Set();
+  for (const token of normalized.split(/[\s,]+/).filter(Boolean)) {
+    const num = Number(token);
+    if (Number.isInteger(num) && num >= 1 && num <= entries.length) {
+      chosen.add(entries[num - 1][0]);
+    } else if (entries.some(([id]) => id.toLowerCase() === token)) {
+      chosen.add(entries.find(([id]) => id.toLowerCase() === token)[0]);
+    }
+  }
+  return chosen;
+}
+
 export async function runInstall({ only = null, rl = null, applyOnly = false } = {}) {
   const cfg = loadHarnessesConfig();
+  const entries = Object.entries(cfg.harnesses);
   const explicitSet = only ? new Set(only.map((m) => m.trim().toLowerCase())) : null;
 
   // 1. Auto-install T3 Code (unless --only was specified without t3, or applyOnly is set)
@@ -531,21 +564,23 @@ export async function runInstall({ only = null, rl = null, applyOnly = false } =
     setupT3({ autoInstall: true });
   }
 
-  // 2. Ask the user for each harness in harnesses.json (unless --only or applyOnly was passed)
+  // 2. Select harnesses from menu (unless --only or applyOnly was passed)
   console.log(`\n${c.cyan}:: Step 2: Harnesses & Shared Skills (${cfg.skillsRoot || "~/.agents/skills"})...${c.reset}`);
-  for (const [id, h] of Object.entries(cfg.harnesses)) {
+  let selectedIds = null;
+  if (!explicitSet && !applyOnly && rl) {
+    selectedIds = await promptHarnessMenu(entries, rl);
+  }
+
+  for (const [id, h] of entries) {
     if (explicitSet) {
       if (!explicitSet.has(id) && !explicitSet.has("skills")) continue;
       if (explicitSet.has("skills") && !explicitSet.has(id)) {
         configureHarnessSkills(id, h, cfg.skillsRoot || "~/.agents/skills", expandHome(cfg.skillsRoot || "~/.agents/skills"));
         continue;
       }
-    } else if (!applyOnly && rl) {
-      const ans = await ask(rl, `\n:: Do you want to install/configure ${c.bold}${h.name}${c.reset}? [Y/n]: `, "Y");
-      if (!/^[Yy]/.test(ans)) {
-        console.log(`   :: Skipping ${h.name}.`);
-        continue;
-      }
+    } else if (selectedIds && !selectedIds.has(id)) {
+      console.log(`   :: Skipping ${h.name}.`);
+      continue;
     }
 
     await setupHarness(id, h, { installCli: !applyOnly, rl });
@@ -605,7 +640,7 @@ async function main() {
 
 Commands:
   (none)                  Interactive modular manager menu
-  setup, -i, --install    Auto-install T3 Code & prompt for each harness in harnesses.json
+  setup, -i, --install    Auto-install T3 Code & choose harnesses from a single menu
   apply, --apply          Configure skills and apply Pi config without installing packages
   update, -u, --update    Update ~/.agents repo, Pi CLI, and Pi extensions
   sync, -s, --sync        Sync skills and Pi settings to GitHub
