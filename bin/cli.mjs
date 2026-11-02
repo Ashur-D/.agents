@@ -39,9 +39,14 @@ function loadHarnessesConfig() {
 function getCommandPath(cmd) {
   try {
     const checker = IS_WIN ? `where ${cmd}` : `command -v ${cmd}`;
-    return execSync(checker, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+    const lines = execSync(checker, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
       .trim()
-      .split(/\r?\n/)[0];
+      .split(/\r?\n/)
+      .filter(Boolean);
+    if (IS_WIN) {
+      return lines.find((l) => /\.(cmd|bat|exe)$/i.test(l)) || lines[0] || null;
+    }
+    return lines[0] || null;
   } catch {
     return null;
   }
@@ -52,9 +57,20 @@ function commandExists(cmd) {
 }
 
 function runCmd(cmd, args = [], opts = {}) {
-  return spawnSync(cmd, args, {
+  let executable = cmd;
+  let finalArgs = args;
+  if (IS_WIN) {
+    const resolved = getCommandPath(cmd) || cmd;
+    if (/\.(cmd|bat)$/i.test(resolved)) {
+      executable = process.env.ComSpec || "cmd.exe";
+      finalArgs = ["/d", "/s", "/c", resolved, ...args];
+    } else {
+      executable = resolved;
+    }
+  }
+  return spawnSync(executable, finalArgs, {
     stdio: opts.silent ? "pipe" : "inherit",
-    shell: IS_WIN,
+    shell: false,
     encoding: "utf8",
     ...opts,
   });
@@ -331,10 +347,17 @@ export async function setupHarness(id, h, { installCli = true, rl = null } = {})
 // 3. GLOBAL CLI WRAPPER (~/.local/bin/agents)
 // ========================================================
 export function installGlobalBinWrappers() {
-  if (IS_WIN) return;
+  const cliPath = path.join(REPO_DIR, "bin", "cli.mjs");
+  if (IS_WIN) {
+    const npmBin = path.join(process.env.APPDATA || path.join(HOME, "AppData", "Roaming"), "npm");
+    fs.mkdirSync(npmBin, { recursive: true });
+    fs.writeFileSync(path.join(npmBin, "agents.cmd"), `@echo off\r\nnode "${cliPath}" %*\r\n`, "utf8");
+    fs.writeFileSync(path.join(npmBin, "agents.ps1"), `#!/usr/bin/env pwsh\r\nnode "${cliPath}" @args\r\n`, "utf8");
+    console.log(`\n${c.cyan}:: Installed CLI in ${npmBin}:${c.reset} agents`);
+    return;
+  }
   const localBin = path.join(HOME, ".local", "bin");
   fs.mkdirSync(localBin, { recursive: true });
-  const cliPath = path.join(REPO_DIR, "bin", "cli.mjs");
 
   const agentBin = path.join(localBin, "agents");
   fs.writeFileSync(agentBin, `#!/usr/bin/env bash\nset -euo pipefail\nexec node "${cliPath}" "$@"\n`, { mode: 0o755 });
