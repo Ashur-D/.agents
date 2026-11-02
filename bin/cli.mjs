@@ -522,18 +522,7 @@ export async function runUpdate(rl = null) {
 // ========================================================
 // 7. INSTALL / APPLY FLOW
 // ========================================================
-async function promptHarnessMenu(entries, rl) {
-  console.log(`\n${c.bold}Select harnesses to install & configure:${c.reset}`);
-  entries.forEach(([id, h], idx) => {
-    const bins = Array.isArray(h.bin) ? h.bin : h.bin ? [h.bin] : [];
-    const installed = bins.some(commandExists);
-    const badge = bins.length === 0 ? "" : installed ? ` ${c.green}(installed)${c.reset}` : ` ${c.yellow}(not installed)${c.reset}`;
-    console.log(`  ${idx + 1}) ${h.name.padEnd(24)} [${id}]${badge}`);
-  });
-  console.log(`  a) All harnesses (default)`);
-  console.log(`  n) None (skip harnesses)\n`);
-
-  const raw = await ask(rl, `Enter choices (e.g. 1,3 or pi,agy or a for all) [a]: `, "a");
+function parseHarnessSelection(raw, entries) {
   const normalized = raw.trim().toLowerCase();
   if (!normalized || normalized === "a" || normalized === "all" || normalized === "*") {
     return new Set(entries.map(([id]) => id));
@@ -541,7 +530,6 @@ async function promptHarnessMenu(entries, rl) {
   if (normalized === "n" || normalized === "none" || normalized === "0") {
     return new Set();
   }
-
   const chosen = new Set();
   for (const token of normalized.split(/[\s,]+/).filter(Boolean)) {
     const num = Number(token);
@@ -552,6 +540,101 @@ async function promptHarnessMenu(entries, rl) {
     }
   }
   return chosen;
+}
+
+async function promptHarnessMenu(entries, rl) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.log(`\n${c.bold}Select harnesses to install & configure:${c.reset}`);
+    entries.forEach(([id, h], idx) => {
+      const bins = Array.isArray(h.bin) ? h.bin : h.bin ? [h.bin] : [];
+      const installed = bins.some(commandExists);
+      const badge = bins.length === 0 ? "" : installed ? ` ${c.green}(installed)${c.reset}` : ` ${c.yellow}(not installed)${c.reset}`;
+      console.log(`  ${idx + 1}) ${h.name.padEnd(24)} [${id}]${badge}`);
+    });
+    console.log(`  a) All harnesses (default)`);
+    console.log(`  n) None (skip harnesses)\n`);
+    const raw = await ask(rl, `Enter choices (e.g. 1,3 or pi,agy or a for all) [a]: `, "a");
+    return parseHarnessSelection(raw, entries);
+  }
+
+  // Interactive arrow-key + spacebar checkbox menu
+  rl.pause();
+  const selected = new Set(entries.map(([id]) => id));
+  let cursor = 0;
+  let renderedLines = 0;
+
+  const badges = entries.map(([, h]) => {
+    const bins = Array.isArray(h.bin) ? h.bin : h.bin ? [h.bin] : [];
+    const installed = bins.some(commandExists);
+    return bins.length === 0 ? "" : installed ? ` ${c.green}(installed)${c.reset}` : ` ${c.yellow}(not installed)${c.reset}`;
+  });
+
+  const render = () => {
+    if (renderedLines > 0) {
+      process.stdout.write(`\x1b[${renderedLines}A\x1b[0J`);
+    }
+    const lines = [
+      `${c.bold}Select harnesses to install & configure:${c.reset} ${c.cyan}(↑/↓ move, Space toggle, a all, n none, Enter confirm)${c.reset}`,
+      ...entries.map(([id, h], idx) => {
+        const active = idx === cursor;
+        const checked = selected.has(id);
+        const pointer = active ? `${c.cyan}❯${c.reset}` : " ";
+        const box = checked ? `${c.green}[✓]${c.reset}` : "[ ]";
+        const label = active ? `${c.bold}${h.name.padEnd(24)}${c.reset}` : h.name.padEnd(24);
+        return ` ${pointer} ${box} ${label} [${id}]${badges[idx]}`;
+      }),
+    ];
+    process.stdout.write(lines.join("\n") + "\n");
+    renderedLines = lines.length;
+  };
+
+  return new Promise((resolve) => {
+    const wasRaw = process.stdin.isRaw;
+    process.stdout.write("\x1b[?25l");
+    readline.emitKeypressEvents(process.stdin);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    render();
+
+    const cleanup = () => {
+      process.stdin.removeListener("keypress", onKeypress);
+      if (process.stdin.isTTY) process.stdin.setRawMode(Boolean(wasRaw));
+      process.stdout.write("\x1b[?25h");
+      rl.resume();
+    };
+
+    const onKeypress = (str, key = {}) => {
+      if (key.ctrl && key.name === "c") {
+        cleanup();
+        process.stdout.write("\n");
+        process.exit(130);
+      }
+      if (key.name === "up" || key.name === "k") {
+        cursor = (cursor - 1 + entries.length) % entries.length;
+        render();
+      } else if (key.name === "down" || key.name === "j") {
+        cursor = (cursor + 1) % entries.length;
+        render();
+      } else if (key.name === "space") {
+        const id = entries[cursor][0];
+        if (selected.has(id)) selected.delete(id);
+        else selected.add(id);
+        render();
+      } else if (str === "a" || str === "A") {
+        if (selected.size === entries.length) selected.clear();
+        else entries.forEach(([id]) => selected.add(id));
+        render();
+      } else if (str === "n" || str === "N") {
+        selected.clear();
+        render();
+      } else if (key.name === "return" || key.name === "enter") {
+        cleanup();
+        resolve(selected);
+      }
+    };
+
+    process.stdin.on("keypress", onKeypress);
+  });
 }
 
 export async function runInstall({ only = null, rl = null, applyOnly = false } = {}) {
@@ -614,6 +697,80 @@ export async function runUninstall(rl) {
   console.log(`\n${c.green}✨ Uninstalled symlinks and Pi CLI. (Your ~/.agents repo was preserved).${c.reset}`);
 }
 
+async function promptActionMenu(actions, rl) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.log("Select an action (or run directly via CLI):");
+    actions.forEach((a, idx) => {
+      console.log(`  ${idx + 1}) ${a.label.padEnd(33)} ${a.hint}`);
+    });
+    console.log("");
+    return ask(rl, `Enter choice [1-${actions.length}] (default: 1): `, "1");
+  }
+
+  rl.pause();
+  let cursor = 0;
+  let renderedLines = 0;
+
+  const render = () => {
+    if (renderedLines > 0) {
+      process.stdout.write(`\x1b[${renderedLines}A\x1b[0J`);
+    }
+    const lines = [
+      `${c.bold}Select an action:${c.reset} ${c.cyan}(↑/↓ move, Enter select)${c.reset}`,
+      ...actions.map((a, idx) => {
+        const active = idx === cursor;
+        const pointer = active ? `${c.cyan}❯${c.reset}` : " ";
+        const label = active ? `${c.bold}${a.label.padEnd(34)}${c.reset}` : a.label.padEnd(34);
+        const hint = a.hint ? ` ${c.yellow}${a.hint}${c.reset}` : "";
+        return ` ${pointer} ${label}${hint}`;
+      }),
+    ];
+    process.stdout.write(lines.join("\n") + "\n");
+    renderedLines = lines.length;
+  };
+
+  return new Promise((resolve) => {
+    const wasRaw = process.stdin.isRaw;
+    process.stdout.write("\x1b[?25l");
+    readline.emitKeypressEvents(process.stdin);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    render();
+
+    const cleanup = () => {
+      process.stdin.removeListener("keypress", onKeypress);
+      if (process.stdin.isTTY) process.stdin.setRawMode(Boolean(wasRaw));
+      process.stdout.write("\x1b[?25h");
+      rl.resume();
+    };
+
+    const onKeypress = (str, key = {}) => {
+      if (key.ctrl && key.name === "c") {
+        cleanup();
+        process.stdout.write("\n");
+        process.exit(130);
+      }
+      if (key.name === "up" || key.name === "k") {
+        cursor = (cursor - 1 + actions.length) % actions.length;
+        render();
+      } else if (key.name === "down" || key.name === "j") {
+        cursor = (cursor + 1) % actions.length;
+        render();
+      } else if (str && /^[1-9]$/.test(str) && Number(str) <= actions.length) {
+        cursor = Number(str) - 1;
+        render();
+        cleanup();
+        resolve(actions[cursor].id);
+      } else if (key.name === "return" || key.name === "enter") {
+        cleanup();
+        resolve(actions[cursor].id);
+      }
+    };
+
+    process.stdin.on("keypress", onKeypress);
+  });
+}
+
 // ========================================================
 // CLI ENTRYPOINT
 // ========================================================
@@ -674,16 +831,17 @@ Options:
     console.log("==========================================================");
     console.log("  🚀 Universal AI Harness & Skills Manager (~/.agents)    ");
     console.log("==========================================================\n");
-    console.log("Select an action (or run directly via CLI):");
-    console.log("  1) Install T3 Code & Harnesses       (agents setup)");
-    console.log("  2) Apply Skills & Configs Only       (agents apply)");
-    console.log("  3) Update Repo, Pi CLI & Extensions  (agents update)");
-    console.log("  4) Sync Skills & Pi Config to GitHub (agents sync)");
-    console.log("  5) Run System Health Check           (agents doctor)");
-    console.log("  6) Uninstall                         (agents uninstall)");
-    console.log("  7) Exit\n");
 
-    const choice = await ask(rl, "Enter choice [1-7] (default: 1): ", "1");
+    const actions = [
+      { id: "1", label: "Install T3 Code & Harnesses", hint: "(agents setup)" },
+      { id: "2", label: "Apply Skills & Configs Only", hint: "(agents apply)" },
+      { id: "3", label: "Update Repo, Pi CLI & Extensions", hint: "(agents update)" },
+      { id: "4", label: "Sync Skills & Pi Config to GitHub", hint: "(agents sync)" },
+      { id: "5", label: "Run System Health Check", hint: "(agents doctor)" },
+      { id: "6", label: "Uninstall", hint: "(agents uninstall)" },
+      { id: "7", label: "Exit", hint: "" },
+    ];
+    const choice = await promptActionMenu(actions, rl);
     switch (choice) {
       case "1":
         await runInstall({ rl });
