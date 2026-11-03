@@ -38,9 +38,10 @@
     },
     "dsh": {
       "name": "DeepSeek Harness",
-      "bin": "dsh",
+      "bin": ["deepseek-harness", "deepseek-harness-desktop", "dsh"],
+      "aurPackage": "deepseek-harness-desktop-bin",
+      "aurFallback": "deepseek-harness-bin",
       "npmPackage": "@deepseek-ai/dsh",
-      "aurPackage": "deepseek-harness-bin",
       "skillsMode": "native",
       "skillsPath": "~/.dsh/skills"
     }

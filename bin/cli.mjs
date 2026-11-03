@@ -343,14 +343,28 @@ export async function setupHarness(id, h, { installCli = true, rl = null } = {})
 
   if (id === "pi") {
     await setupPi({ installCli, rl });
-  } else if (installCli && h.bin && !commandExists(h.bin)) {
-    if (!IS_WIN && h.aurPackage && commandExists("yay")) {
-      console.log(`:: Installing ${h.name} via yay (${h.aurPackage})...`);
-      runCmd("yay", ["-S", "--needed", "--noconfirm", h.aurPackage]);
-    } else if (h.npmPackage && (await ensureNpm(rl))) {
-      configureNpmUserPrefix();
-      console.log(`:: Installing ${h.name} via npm (${h.npmPackage})...`);
-      runCmd("npm", ["install", "-g", h.npmPackage]);
+  } else if (installCli) {
+    const bins = Array.isArray(h.bin) ? h.bin : h.bin ? [h.bin] : [];
+    const isInstalled = bins.some(commandExists);
+    if (!isInstalled && bins.length > 0) {
+      let installedViaYay = false;
+      if (!IS_WIN && commandExists("yay")) {
+        const pkgsToTry = [h.aurPackage, h.aurFallback].filter(Boolean);
+        for (const pkg of pkgsToTry) {
+          console.log(`:: Installing ${h.name} via yay (${pkg})...`);
+          const res = runCmd("yay", ["-S", "--needed", "--noconfirm", pkg]);
+          if (res.status === 0) {
+            installedViaYay = true;
+            break;
+          }
+          console.log(`:: yay install of ${pkg} failed, checking alternatives...`);
+        }
+      }
+      if (!installedViaYay && h.npmPackage && (await ensureNpm(rl))) {
+        configureNpmUserPrefix();
+        console.log(`:: Installing ${h.name} via npm (${h.npmPackage})...`);
+        runCmd("npm", ["install", "-g", h.npmPackage]);
+      }
     }
   }
 
