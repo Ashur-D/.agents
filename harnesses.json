@@ -38,25 +38,6 @@
       },
       "skillsMode": "symlink",
       "skillsPath": "~/.gemini/config/skills"
-    },
-    "dsh": {
-      "name": "DeepSeek Harness",
-      "bin": ["deepseek-harness", "deepseek-harness-desktop", "dsh"],
-      "aurPackage": "deepseek-harness-desktop",
-      "aurFallback": "deepseek-harness-bin",
-      "npmPackage": "@deepseek-ai/dsh",
-      "skillsMode": "native",
-      "skillsPath": "~/.dsh/skills",
-      "t3Provider": {
-        "id": "dsh",
-        "driver": "acpRegistry",
-        "displayName": "DeepSeek Harness",
-        "config": {
-          "source": "local",
-          "commandPath": "/usr/bin/dsh",
-          "commandArgs": ["--profile", "acp"]
-        }
-      }
     }
   }
 }
