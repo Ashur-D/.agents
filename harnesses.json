@@ -35,6 +35,14 @@
       },
       "skillsMode": "symlink",
       "skillsPath": "~/.gemini/config/skills"
+    },
+    "dsh": {
+      "name": "DeepSeek Harness",
+      "bin": "dsh",
+      "npmPackage": "@deepseek-ai/dsh",
+      "aurPackage": "deepseek-harness-bin",
+      "skillsMode": "native",
+      "skillsPath": "~/.dsh/skills"
     }
   }
 }
