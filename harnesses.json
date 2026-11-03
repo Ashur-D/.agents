@@ -46,7 +46,17 @@
       "aurFallback": "deepseek-harness-bin",
       "npmPackage": "@deepseek-ai/dsh",
       "skillsMode": "native",
-      "skillsPath": "~/.dsh/skills"
+      "skillsPath": "~/.dsh/skills",
+      "t3Provider": {
+        "id": "dsh",
+        "driver": "acpRegistry",
+        "displayName": "DeepSeek Harness",
+        "config": {
+          "source": "local",
+          "commandPath": "/usr/bin/dsh",
+          "commandArgs": ["--profile", "acp"]
+        }
+      }
     }
   }
 }

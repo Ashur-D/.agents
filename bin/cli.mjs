@@ -217,6 +217,7 @@ function enableT3Provider(t3Provider) {
     driver: t3Provider.driver || t3Provider.id,
     ...(t3Provider.displayName ? { displayName: t3Provider.displayName } : {}),
     enabled: true,
+    ...(t3Provider.config ? { config: t3Provider.config } : {}),
   };
   fs.writeFileSync(settingsDest, JSON.stringify(existing, null, 2) + "\n", "utf8");
   console.log(`   ${c.green}[✓]${c.reset} Enabled ${t3Provider.displayName || t3Provider.id} provider in T3 Code`);
