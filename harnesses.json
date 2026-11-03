@@ -29,6 +29,9 @@
     },
     "agy": {
       "name": "Antigravity (Gemini)",
+      "bin": "agy",
+      "installScript": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+      "winInstallScript": "irm https://antigravity.google/cli/install.ps1 | iex",
       "t3Provider": {
         "id": "antigravity",
         "driver": "antigravity"

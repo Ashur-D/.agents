@@ -360,7 +360,13 @@ export async function setupHarness(id, h, { installCli = true, rl = null } = {})
           console.log(`:: yay install of ${pkg} failed, checking alternatives...`);
         }
       }
-      if (!installedViaYay && h.npmPackage && (await ensureNpm(rl))) {
+      if (!installedViaYay && h.installScript && !IS_WIN) {
+        console.log(`:: Installing ${h.name} via official install script...`);
+        runCmd("bash", ["-c", h.installScript]);
+      } else if (!installedViaYay && h.winInstallScript && IS_WIN) {
+        console.log(`:: Installing ${h.name} via official PowerShell install script...`);
+        runCmd("powershell", ["-NoProfile", "-Command", h.winInstallScript]);
+      } else if (!installedViaYay && h.npmPackage && (await ensureNpm(rl))) {
         configureNpmUserPrefix();
         console.log(`:: Installing ${h.name} via npm (${h.npmPackage})...`);
         runCmd("npm", ["install", "-g", h.npmPackage]);
