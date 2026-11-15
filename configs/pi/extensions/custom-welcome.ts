@@ -1,6 +1,7 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 
 function stripAnsi(text: string): string {
@@ -25,21 +26,54 @@ function centerInWidth(text: string, targetWidth: number): string {
   return " ".repeat(leftPad) + text + " ".repeat(rightPad);
 }
 
-function getPiVersion(): string {
+function readPackageVersion(pkgPath: string, expectedName?: string): string | null {
   try {
-    const candidates = [
-      join(homedir(), ".local", "lib", "node_modules", "@earendil-works", "pi-coding-agent", "package.json"),
-      "/usr/lib/node_modules/@earendil-works/pi-coding-agent/package.json",
-      "/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/package.json"
-    ];
-    for (const p of candidates) {
-      if (existsSync(p)) {
-        const pkg = JSON.parse(readFileSync(p, "utf8"));
-        if (pkg.version) return pkg.version;
-      }
-    }
+    if (!existsSync(pkgPath)) return null;
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+    if (expectedName && pkg.name !== expectedName) return null;
+    return typeof pkg.version === "string" && pkg.version ? pkg.version : null;
+  } catch {
+    return null;
+  }
+}
+
+function getPiVersion(): string | null {
+  const pkgName = "@earendil-works/pi-coding-agent";
+
+  // 1. Resolve via Node module resolution from the extension context
+  try {
+    const req = createRequire(import.meta.url);
+    const resolved = req.resolve(`${pkgName}/package.json`);
+    const v = readPackageVersion(resolved, pkgName);
+    if (v) return v;
   } catch {}
-  return "1.4.0";
+
+  // 2. Walk up from the running `pi` binary/entrypoint (works for nvm, fnm, pnpm, Windows, etc.)
+  if (process.argv[1]) {
+    try {
+      let dir = dirname(realpathSync(process.argv[1]));
+      while (true) {
+        const v = readPackageVersion(join(dir, "package.json"), pkgName);
+        if (v) return v;
+        const parent = resolve(dir, "..");
+        if (parent === dir) break;
+        dir = parent;
+      }
+    } catch {}
+  }
+
+  // 3. Fallback static locations
+  const candidates = [
+    join(homedir(), ".local", "lib", "node_modules", "@earendil-works", "pi-coding-agent", "package.json"),
+    "/usr/lib/node_modules/@earendil-works/pi-coding-agent/package.json",
+    "/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/package.json",
+  ];
+  for (const p of candidates) {
+    const v = readPackageVersion(p, pkgName);
+    if (v) return v;
+  }
+
+  return null;
 }
 
 function padEndVisible(text: string, targetWidth: number): string {
@@ -211,9 +245,10 @@ export default function (pi: ExtensionAPI) {
           banner.push("");
 
           // ─── Badges: Punchy & Centered ─────────────────────────────────────
+          const piLabel = piVersion ? `Pi v${piVersion}` : "Pi";
           const badges = theme.fg(
             "text",
-            `Pi v${piVersion}  ·  Auth Ready  ·  ${dateStr} · ${timeStr}`
+            `${piLabel}  ·  Auth Ready  ·  ${dateStr} · ${timeStr}`
           );
           banner.push(center(badges, width));
           banner.push("");

@@ -76,6 +76,10 @@ function runCmd(cmd, args = [], opts = {}) {
   });
 }
 
+function isCmdOk(res) {
+  return Boolean(res && !res.error && res.status === 0);
+}
+
 function ensureSymlink(targetPath, linkPath) {
   const parent = path.dirname(linkPath);
   fs.mkdirSync(parent, { recursive: true });
@@ -252,19 +256,38 @@ export function configureHarnessSkills(id, h, canonicalRoot, canonicalSkills) {
   }
 }
 
-export function linkAllSkills(selectedHarnesses = null) {
-  const cfg = loadHarnessesConfig();
-  const repoSkills = path.join(REPO_DIR, "skills");
+export function ensureCanonicalSkillsRoot(cfg = loadHarnessesConfig(), repoDir = REPO_DIR) {
+  const repoSkills = path.join(repoDir, "skills");
   const canonicalRoot = cfg.skillsRoot || "~/.agents/skills";
   const canonicalSkills = expandHome(canonicalRoot);
 
-  console.log(`\n${c.cyan}:: Configuring Universal Agent Skills (${canonicalRoot})...${c.reset}`);
   if (path.resolve(canonicalSkills) !== path.resolve(repoSkills)) {
     ensureSymlink(repoSkills, canonicalSkills);
     console.log(`   ${c.green}[✓]${c.reset} ${canonicalRoot} -> ${repoSkills}`);
   } else {
     console.log(`   ${c.green}[✓]${c.reset} Canonical directory ready: ${canonicalSkills}`);
   }
+
+  return { repoSkills, canonicalRoot, canonicalSkills };
+}
+
+export function mergePiSettings(existing = {}, template = {}) {
+  const merged = {
+    ...existing,
+    ...template,
+  };
+  if (Array.isArray(template.packages)) {
+    merged.packages = [...new Set(template.packages)];
+  }
+  return merged;
+}
+
+export function linkAllSkills(selectedHarnesses = null) {
+  const cfg = loadHarnessesConfig();
+  const canonicalRoot = cfg.skillsRoot || "~/.agents/skills";
+
+  console.log(`\n${c.cyan}:: Configuring Universal Agent Skills (${canonicalRoot})...${c.reset}`);
+  const { canonicalSkills } = ensureCanonicalSkillsRoot(cfg);
 
   for (const [id, h] of Object.entries(cfg.harnesses)) {
     if (selectedHarnesses && !selectedHarnesses.has(id)) continue;
@@ -320,11 +343,7 @@ export async function setupPi({ installCli = true, rl = null } = {}) {
         existing = JSON.parse(fs.readFileSync(settingsDest, "utf8"));
       } catch {}
     }
-    const merged = {
-      ...existing,
-      ...template,
-      packages: [...new Set([...(template.packages || []), ...(existing.packages || [])])],
-    };
+    const merged = mergePiSettings(existing, template);
     fs.writeFileSync(settingsDest, JSON.stringify(merged, null, 2) + "\n", "utf8");
     console.log(`   ${c.green}[✓]${c.reset} Applied Pi settings.json template`);
   }
@@ -518,7 +537,13 @@ export async function runSync(args = [], rl = null) {
     }
   }
 
-  const statusOut = spawnSync("git", ["status", "--porcelain"], { cwd: REPO_DIR, encoding: "utf8" }).stdout.trim();
+  const statusRes = spawnSync("git", ["status", "--porcelain"], { cwd: REPO_DIR, encoding: "utf8" });
+  if (!isCmdOk(statusRes)) {
+    console.error(`\n${c.red}[✗] Failed to check git status in ${REPO_DIR}.${c.reset}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  const statusOut = (statusRes.stdout || "").trim();
   if (!statusOut) {
     console.log(`\n${c.green}✨ Everything is clean and up-to-date. Nothing to commit.${c.reset}\n`);
     return;
@@ -537,8 +562,16 @@ export async function runSync(args = [], rl = null) {
     }
   }
 
-  runCmd("git", ["add", "-A"], { cwd: REPO_DIR });
-  runCmd("git", ["commit", "-m", customMsg], { cwd: REPO_DIR });
+  if (!isCmdOk(runCmd("git", ["add", "-A"], { cwd: REPO_DIR }))) {
+    console.error(`\n${c.red}[✗] git add failed.${c.reset}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (!isCmdOk(runCmd("git", ["commit", "-m", customMsg], { cwd: REPO_DIR }))) {
+    console.error(`\n${c.red}[✗] git commit failed.${c.reset}\n`);
+    process.exitCode = 1;
+    return;
+  }
 
   if (!autoPush) {
     const ans = await ask(rl, "\n:: Push changes to GitHub now? [Y/n]: ", "Y");
@@ -547,8 +580,16 @@ export async function runSync(args = [], rl = null) {
 
   if (autoPush) {
     console.log(":: Pulling latest with rebase & pushing to origin...");
-    runCmd("git", ["pull", "--rebase", "--autostash"], { cwd: REPO_DIR });
-    runCmd("git", ["push"], { cwd: REPO_DIR });
+    if (!isCmdOk(runCmd("git", ["pull", "--rebase", "--autostash"], { cwd: REPO_DIR }))) {
+      console.error(`\n${c.red}[✗] git pull --rebase failed. Resolve conflicts and push manually.${c.reset}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    if (!isCmdOk(runCmd("git", ["push"], { cwd: REPO_DIR }))) {
+      console.error(`\n${c.red}[✗] git push failed.${c.reset}\n`);
+      process.exitCode = 1;
+      return;
+    }
     console.log(`\n${c.green}✨ Successfully synced and pushed to GitHub!${c.reset}\n`);
   }
 }
@@ -562,7 +603,11 @@ export async function runUpdate(rl = null) {
   console.log("==========================================================\n");
 
   console.log(":: 1/3 Pulling latest ~/.agents repository...");
-  runCmd("git", ["pull", "--rebase", "--autostash"], { cwd: REPO_DIR });
+  if (!isCmdOk(runCmd("git", ["pull", "--rebase", "--autostash"], { cwd: REPO_DIR }))) {
+    console.error(`\n${c.red}[✗] git pull --rebase failed. Resolve conflicts before updating.${c.reset}\n`);
+    process.exitCode = 1;
+    return;
+  }
 
   if (await ensureNpm(rl)) {
     configureNpmUserPrefix();
@@ -584,7 +629,7 @@ export async function runUpdate(rl = null) {
 // ========================================================
 // 7. INSTALL / APPLY FLOW
 // ========================================================
-function parseHarnessSelection(raw, entries) {
+export function parseHarnessSelection(raw, entries) {
   const normalized = raw.trim().toLowerCase();
   if (!normalized || normalized === "a" || normalized === "all" || normalized === "*") {
     return new Set(entries.map(([id]) => id));
@@ -710,7 +755,12 @@ export async function runInstall({ only = null, rl = null, applyOnly = false } =
   }
 
   // 2. Select harnesses from menu (unless --only or applyOnly was passed)
+  const needsSkillsOrHarness = !explicitSet || explicitSet.has("skills") || entries.some(([id]) => explicitSet.has(id));
   console.log(`\n${c.cyan}:: Step 2: Harnesses & Shared Skills (${cfg.skillsRoot || "~/.agents/skills"})...${c.reset}`);
+  const { canonicalRoot, canonicalSkills } = needsSkillsOrHarness
+    ? ensureCanonicalSkillsRoot(cfg)
+    : { canonicalRoot: cfg.skillsRoot || "~/.agents/skills", canonicalSkills: expandHome(cfg.skillsRoot || "~/.agents/skills") };
+
   let selectedIds = null;
   if (!explicitSet && !applyOnly && rl) {
     selectedIds = await promptHarnessMenu(entries, rl);
@@ -720,7 +770,7 @@ export async function runInstall({ only = null, rl = null, applyOnly = false } =
     if (explicitSet) {
       if (!explicitSet.has(id) && !explicitSet.has("skills")) continue;
       if (explicitSet.has("skills") && !explicitSet.has(id)) {
-        configureHarnessSkills(id, h, cfg.skillsRoot || "~/.agents/skills", expandHome(cfg.skillsRoot || "~/.agents/skills"));
+        configureHarnessSkills(id, h, canonicalRoot, canonicalSkills);
         continue;
       }
     } else if (selectedIds && !selectedIds.has(id)) {
@@ -930,4 +980,15 @@ Options:
   }
 }
 
-main();
+const isDirectRun = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    return path.resolve(fs.realpathSync(process.argv[1])) === path.resolve(fs.realpathSync(__filename));
+  } catch {
+    return path.resolve(process.argv[1]) === path.resolve(__filename);
+  }
+})();
+
+if (isDirectRun) {
+  main();
+}
