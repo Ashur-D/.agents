@@ -1,38 +1,40 @@
 ---
 name: unslop
-description: Cut AI tells, robotic buzzwords, filler, and repetitive patterns from any writing or generated content. Use for essays, documentation, reports, and code comments.
+description: Cut AI tells from any writing.
+disable-model-invocation: true
 ---
 
 # Unslop
 
-Edit text to remove AI patterns and make prose crisp, human, and direct.
+Edit text to remove AI patterns. Scan for the patterns below, then rewrite. Preserve meaning and match the intended tone.
 
-## Process
+Rule numbers are stable ids that other skills cite. A removed rule leaves a gap.
 
-1. Scan for AI tells (buzzwords, vague attributions, filler).
-2. Rewrite while preserving factual meaning and matching the intended tone.
-3. Self-audit: "What makes this sound obviously AI generated?" Fix any remaining tells.
-
-## Rules and Patterns to Fix
-
-### Content & Vocabulary
-- **AI buzzwords:** Additionally, crucial, delve, enduring, enhance, fostering, garner, interplay, intricate, landscape (abstract), pivotal, showcase, tapestry (abstract), testament, underscore, vibrant. Replace with direct, plain words.
-- **Fancy ways to say "is":** "serves as", "stands as", "boasts", "features". Just say "is" or "has".
-- **Vague attributions:** "Experts believe", "Industry reports suggest", "Some critics argue". Either name the exact person/source or cut it.
-- **Superficial -ing clauses:** "highlighting...", "ensuring...", "fostering...". Turn into separate concrete clauses.
-
-### Style & Formatting
-- **Em dash overuse:** Avoid em dashes entirely. Use periods or commas. Keep sentences concise.
-- **Colon overuse:** Colons are fine before a list or code snippet, not as mid-sentence conversational glue.
-- **Boldface overuse:** Don't bold every term or concept.
-- **Title case headings:** Use sentence case.
-- **Decorative emojis:** Keep out of technical and academic writing.
-
-### Communication & Filler
-- **Chatbot sycophancy:** Cut "Certainly!", "Of course!", "Great question!", "I hope this helps!". Get straight to the answer.
-- **Wordy filler:** 
-  - "In order to" -> "To"
-  - "Due to the fact that" -> "Because"
-  - "It is important to note that" -> delete entirely
-- **Plain verbs:** "utilize" -> "use", "leverage" -> "use", "facilitate" -> "help", "numerous" -> "many".
-- **Active voice:** Prefer active over passive voice ("the router drops the packet" instead of "the packet is dropped by the router").
+3. No trailing "-ing" phrases that add no fact ("highlighting...", "ensuring...").
+5. No vague attributions ("experts believe"). Name the source or delete.
+7. No AI vocabulary: additionally, crucial, delve, enhance, foster, landscape, pivotal, showcase, testament, underscore, vibrant.
+8. Say "is" or "has", not "serves as", "stands as", "boasts", "features".
+9. No "not just X, but Y". State the point.
+10. Don't force ideas into threes.
+11. One name per thing. Repeat it.
+12. No "from X to Y" unless X and Y sit on a real scale.
+13. No em dashes, en dashes, or hyphens used as dashes, and no parentheses in their place. Use a period or a comma.
+14. A colon goes before a list or an example, never mid-sentence as a connector.
+15. Don't bold every proper noun or acronym.
+16. No bold label and colon that restates its line ("**Performance:** Performance improved..."). A bold lead-in that ends in a period and adds new detail is fine.
+17. Sentence case headings.
+18. No decorative emojis.
+19. Straight quotes.
+20. No chatbot phrases ("I hope this helps!", "Let me know if...").
+22. No praise or agreement openers. Respond directly.
+23. Cut filler. "In order to" becomes "to". Delete "it is important to note that".
+24. One hedge at most: "may".
+25. No generic conclusions. State specific plans or facts.
+26. No abstract metaphor nouns: substrate, wedge, vector, nexus, primitive, harness, surface, scaffolding, paradigm, ratchet, north star, flywheel. Use the concrete word.
+27. Say what it does, not how it feels. Name the mechanism or the number. Cut a sentence that could appear unchanged in another project's docs.
+28. One idea per sentence. Split a sentence the reader has to reread.
+29. Active voice. Name the actor unless it is unknown or doesn't matter.
+30. Cut adverbs or use a stronger verb. Give the number.
+31. Use the plain word: "use", not "utilize" or "leverage".
+32. No metaphor, aphorism, personified code, or figurative verb where a literal phrase exists.
+33. Write whole sentences with their articles and verbs. Spell out arrows and abbreviations.
