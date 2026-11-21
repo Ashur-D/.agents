@@ -49,9 +49,9 @@ Skills remain flat under `skills/<name>/SKILL.md` for `agentskills.io` and harne
 | [cursor/plugins](https://github.com/cursor/plugins/tree/main/pstack/skills) (`pstack`) | `teach`, `how`, `why`, `technical-writing`, `unslop` |
 | [obra/superpowers](https://github.com/obra/superpowers/tree/main/skills) | `systematic-debugging`, `test-driven-development`, `verification-before-completion`, `requesting-code-review`, `receiving-code-review`, `writing-skills` |
 | [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills) | `grilling`, `improve-codebase-architecture`, `triage` |
-| [t3dotgg/tstack](https://github.com/t3dotgg/tstack/tree/main/skills) | `council`, `sol-loop`, `file-pr`, `modernize`, `leaving-pr-comments` |
+| [t3dotgg/tstack](https://github.com/t3dotgg/tstack/tree/main/skills) | `council`, `file-pr`, `modernize`, `leaving-pr-comments` |
 | [obsidianmd/obsidian-skills](https://github.com/obsidianmd/obsidian-skills/tree/main/plugins/obsidian/skills) | `defuddle`, `json-canvas`, `knap`, `obsidian-bases`, `obsidian-cli`, `obsidian-headless`, `obsidian-markdown` |
-| [affaan-m/ECC](https://github.com/affaan-m/ECC/tree/main/skills) | `search-first`, `security-review`, `architecture-decision-records`, `cisco-ios-patterns`, `netmiko-ssh-automation`, `network-bgp-diagnostics`, `network-config-validation`, `network-interface-health`, `homelab-network-readiness`, `homelab-network-setup`, `homelab-pihole-dns`, `homelab-vlan-segmentation`, `homelab-wireguard-vpn` |
+| [affaan-m/ECC](https://github.com/affaan-m/ECC/tree/main/skills) | `search-first`, `security-review`, `cisco-ios-patterns`, `netmiko-ssh-automation`, `network-bgp-diagnostics`, `network-config-validation`, `network-interface-health`, `homelab-network-readiness`, `homelab-network-setup`, `homelab-pihole-dns`, `homelab-vlan-segmentation`, `homelab-wireguard-vpn` |
 | [blader/humanizer](https://github.com/blader/humanizer) | `humanizer` |
 | [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd/tree/main/skills/i-have-adhd) | `i-have-adhd` |
 | [nykooi1/vibe-wise](https://github.com/nykooi1/vibe-wise) | `vibe-wise` |
