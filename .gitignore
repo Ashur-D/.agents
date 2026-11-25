@@ -21,5 +21,5 @@ auth.json
 antigravity-accounts.json
 
 # Ignore local themes (e.g. noctalia)
-themes/
+configs/pi/themes/
 *noctalia*

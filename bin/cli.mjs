@@ -6,6 +6,7 @@ import { emitKeypressEvents } from "node:readline";
 import readline from "node:readline/promises";
 import { execSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { readElectronLocalStorage } from "./leveldb-reader.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -204,11 +205,444 @@ export function setupT3({ autoInstall = true } = {}) {
   }
 }
 
-function enableT3Provider(t3Provider) {
+const T3_SETTINGS_LOCAL_KEYS = new Set(["environmentIcon", "defaultThemeSetAt", "defaultAppearanceSetAt"]);
+const T3_CLIENT_SETTINGS_LOCAL_KEYS = new Set([
+  "voiceMicrophone",
+  "voiceMicrophones",
+  "onboardingCompletedAt",
+  "browserProfiles",
+  "browserDefaultProfileId",
+  "sidebarProjectGroupingOverrides",
+  "pullRequestMergeMethodOverrides",
+]);
+const T3_THEME_EXTENSIONS = new Set([".json", ".png", ".jpg", ".jpeg", ".webp"]);
+const T3_BUILTIN_THEMES = new Set(["", "t3-code", "t3-chat", "grove", "ocean", "ember", "iris", "light", "dark", "system"]);
+const T3_STOCK_THEME_IDS = new Set(["", "t3-code", "light", "dark", "system"]);
+const T3_THEME_ID_RE = /^(?!(?:system|light|dark)$)[a-z0-9](?:[a-z0-9-]{0,47})$/;
+const T3_THEME_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp"];
+
+function isSensitiveKey(key) {
+  return /secret|token|password|apikey|api_key|credential/i.test(key);
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSyncableT3ThemeFile(name) {
+  if (!name || name.startsWith(".") || /noctalia/i.test(name)) return false;
+  return T3_THEME_EXTENSIONS.has(path.extname(name).toLowerCase());
+}
+
+export function getT3DesktopStorageDir(platform = process.platform, env = process.env, home = HOME) {
+  if (platform === "win32") {
+    return path.join(env.APPDATA || path.join(home, "AppData", "Roaming"), "t3code-v2", "Local Storage", "leveldb");
+  }
+  if (platform === "darwin") {
+    return path.join(home, "Library", "Application Support", "t3code-v2", "Local Storage", "leveldb");
+  }
+  return path.join(env.XDG_CONFIG_HOME || path.join(home, ".config"), "t3code-v2", "Local Storage", "leveldb");
+}
+
+export function resolveDesktopActiveTheme({ theme = "", appearanceMode = "", themeHalves = null } = {}) {
+  let mode = appearanceMode === "light" || appearanceMode === "dark" || appearanceMode === "system" ? appearanceMode : "";
+  let effectiveTheme = "";
+  if (mode === "dark" && typeof themeHalves?.dark === "string" && themeHalves.dark) {
+    effectiveTheme = themeHalves.dark;
+  } else if (mode === "light" && typeof themeHalves?.light === "string" && themeHalves.light) {
+    effectiveTheme = themeHalves.light;
+  } else if (typeof theme === "string" && theme) {
+    effectiveTheme = theme;
+  } else if (typeof themeHalves?.dark === "string" && themeHalves.dark) {
+    effectiveTheme = themeHalves.dark;
+  } else if (typeof themeHalves?.light === "string" && themeHalves.light) {
+    effectiveTheme = themeHalves.light;
+  }
+
+  if (!mode && (effectiveTheme === "dark" || effectiveTheme === "light" || effectiveTheme === "system")) {
+    mode = effectiveTheme;
+  }
+
+  const defaultTheme = T3_STOCK_THEME_IDS.has(effectiveTheme) ? "" : effectiveTheme;
+  return { themeId: effectiveTheme, defaultTheme, appearanceMode: mode };
+}
+
+export function toEnvironmentThemeFile(theme) {
+  if (!isPlainObject(theme)) return null;
+  const name = String(theme.name ?? theme.label ?? "").trim();
+  const appearance = theme.appearance;
+  if (!name || name.length > 48 || (appearance !== "light" && appearance !== "dark")) {
+    return null;
+  }
+  const hasColors = isPlainObject(theme.colors) && Object.keys(theme.colors).length > 0;
+  const hasCanvasAccent =
+    typeof theme.canvas === "string" && theme.canvas.length > 0 && typeof theme.accent === "string" && theme.accent.length > 0;
+  if (!hasColors && !hasCanvasAccent) {
+    return null;
+  }
+
+  const out = {
+    version: 1,
+    name,
+    appearance,
+  };
+  if (typeof theme.canvas === "string" && theme.canvas.length > 0) out.canvas = theme.canvas;
+  if (typeof theme.accent === "string" && theme.accent.length > 0) out.accent = theme.accent;
+  if (hasColors) out.colors = theme.colors;
+  if (isPlainObject(theme.variants) && Object.keys(theme.variants).length > 0) {
+    const variants = {};
+    for (const mode of ["light", "dark"]) {
+      if (isPlainObject(theme.variants[mode]) && Object.keys(theme.variants[mode]).length > 0) {
+        variants[mode] = theme.variants[mode];
+      }
+    }
+    if (Object.keys(variants).length > 0) out.variants = variants;
+  }
+  if (typeof theme.css === "string" && theme.css.length > 0) out.css = theme.css;
+  return out;
+}
+
+export function readT3DesktopAppearance({ desktopStorageDir = getT3DesktopStorageDir() } = {}) {
+  const store = readElectronLocalStorage(desktopStorageDir);
+  if (!store) return null;
+
+  const rawTheme = store.get("t3code:theme") ?? "";
+  const rawMode = store.get("t3code:theme-appearance-mode") ?? "";
+  let themeHalves = null;
+  const rawHalves = store.get("t3code:theme-halves:v1");
+  if (rawHalves) {
+    try {
+      const parsed = JSON.parse(rawHalves);
+      if (isPlainObject(parsed)) themeHalves = parsed;
+    } catch {}
+  }
+
+  const customThemesById = new Map();
+  const rawThemes = store.get("t3code:themes:v1");
+  if (rawThemes) {
+    try {
+      const parsed = JSON.parse(rawThemes);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (isPlainObject(item) && typeof item.id === "string" && item.id) {
+            customThemesById.set(item.id, item);
+          }
+        }
+      }
+    } catch {}
+  }
+
+  const { themeId, defaultTheme, appearanceMode } = resolveDesktopActiveTheme({
+    theme: rawTheme,
+    appearanceMode: rawMode,
+    themeHalves,
+  });
+  if (!themeId && !appearanceMode) return null;
+
+  const activeTheme = defaultTheme ? customThemesById.get(defaultTheme) || null : null;
+  const themeFile = activeTheme ? toEnvironmentThemeFile(activeTheme) : null;
+  return { themeId, defaultTheme, appearanceMode, themeFile, customThemesById };
+}
+
+export function getT3Paths(cfg = loadHarnessesConfig(), repoDir = REPO_DIR) {
+  return {
+    srcDir: path.join(repoDir, cfg.t3?.configDir || "configs/t3"),
+    targetDir: expandHome(cfg.t3?.targetDir || "~/.t3/userdata"),
+  };
+}
+
+export function sanitizeT3Settings(raw = {}) {
+  const cleaned = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (T3_SETTINGS_LOCAL_KEYS.has(key) || isSensitiveKey(key)) continue;
+    if (key === "providerInstances") {
+      if (!isPlainObject(value)) continue;
+      const cleanInstances = {};
+      for (const [id, inst] of Object.entries(value)) {
+        if (!isPlainObject(inst)) continue;
+        const cleanInst = {};
+        if (inst.driver !== undefined) cleanInst.driver = inst.driver;
+        if (inst.displayName !== undefined) cleanInst.displayName = inst.displayName;
+        if (typeof inst.enabled === "boolean") cleanInst.enabled = inst.enabled;
+        if (Array.isArray(inst.config?.customModels) && inst.config.customModels.length > 0) {
+          cleanInst.config = { customModels: [...inst.config.customModels] };
+        }
+        cleanInstances[id] = cleanInst;
+      }
+      cleaned.providerInstances = cleanInstances;
+      continue;
+    }
+    cleaned[key] = value;
+  }
+  return cleaned;
+}
+
+export function mergeT3Settings(existing = {}, template = {}) {
+  const merged = {
+    ...existing,
+    ...template,
+  };
+  if (template.defaultTheme !== undefined && template.defaultTheme !== existing.defaultTheme) {
+    delete merged.defaultThemeSetAt;
+  }
+  if (template.defaultAppearance !== undefined && template.defaultAppearance !== existing.defaultAppearance) {
+    delete merged.defaultAppearanceSetAt;
+  }
+  if (isPlainObject(existing.providerModelPreferences) || isPlainObject(template.providerModelPreferences)) {
+    merged.providerModelPreferences = {
+      ...(isPlainObject(existing.providerModelPreferences) ? existing.providerModelPreferences : {}),
+      ...(isPlainObject(template.providerModelPreferences) ? template.providerModelPreferences : {}),
+    };
+  }
+  if (isPlainObject(existing.providerInstances) || isPlainObject(template.providerInstances)) {
+    const mergedInstances = {
+      ...(isPlainObject(existing.providerInstances) ? existing.providerInstances : {}),
+    };
+    const templateInstances = isPlainObject(template.providerInstances) ? template.providerInstances : {};
+    for (const [id, tplInst] of Object.entries(templateInstances)) {
+      if (!isPlainObject(tplInst)) continue;
+      const extInst = isPlainObject(existing.providerInstances?.[id]) ? existing.providerInstances[id] : {};
+      const nextInst = {
+        ...extInst,
+        ...tplInst,
+      };
+      if (isPlainObject(extInst.config) || isPlainObject(tplInst.config)) {
+        nextInst.config = {
+          ...(isPlainObject(extInst.config) ? extInst.config : {}),
+          ...(isPlainObject(tplInst.config) ? tplInst.config : {}),
+        };
+      }
+      mergedInstances[id] = nextInst;
+    }
+    merged.providerInstances = mergedInstances;
+  }
+  return merged;
+}
+
+export function sanitizeT3ClientSettings(raw = {}) {
+  const cleaned = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (T3_CLIENT_SETTINGS_LOCAL_KEYS.has(key) || isSensitiveKey(key)) continue;
+    cleaned[key] = value;
+  }
+  return cleaned;
+}
+
+export function mergeT3ClientSettings(existing = {}, template = {}) {
+  return {
+    ...existing,
+    ...template,
+  };
+}
+
+export function captureT3Config({ srcDir, targetDir, desktopStorageDir } = {}) {
+  const defaults = getT3Paths();
+  const resolvedSrc = srcDir || defaults.srcDir;
+  const resolvedTarget = targetDir || defaults.targetDir;
+  const captured = [];
+  const themes = [];
+
+  if (!fs.existsSync(resolvedTarget)) {
+    return { captured, themes };
+  }
+
+  const desktopAppearance = desktopStorageDir === null ? null : readT3DesktopAppearance({ desktopStorageDir });
+  let activeThemeId = desktopAppearance?.defaultTheme || "";
+
+  const jsonSpecs = [
+    { file: "settings.json", sanitize: sanitizeT3Settings, validate: isPlainObject },
+    { file: "client-settings.json", sanitize: sanitizeT3ClientSettings, validate: isPlainObject },
+    { file: "keybindings.json", sanitize: (v) => v, validate: Array.isArray },
+  ];
+
+  for (const { file, sanitize, validate } of jsonSpecs) {
+    const srcFile = path.join(resolvedTarget, file);
+    if (!fs.existsSync(srcFile)) continue;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(srcFile, "utf8"));
+      if (!validate(parsed)) {
+        console.warn(`  ${c.yellow}[!]${c.reset} Skipping ~/.t3/userdata/${file}: unexpected JSON shape`);
+        continue;
+      }
+      fs.mkdirSync(resolvedSrc, { recursive: true });
+      const output = sanitize(parsed);
+      if (file === "settings.json") {
+        if (desktopAppearance) {
+          output.defaultTheme = desktopAppearance.defaultTheme;
+          if (desktopAppearance.appearanceMode) {
+            output.defaultAppearance = desktopAppearance.appearanceMode;
+          }
+          console.log(
+            `  ${c.green}[✓]${c.reset} Synced active T3 Code appearance (${desktopAppearance.defaultTheme || "default"}, ${desktopAppearance.appearanceMode || "auto"}) from Desktop storage`
+          );
+        }
+        activeThemeId = typeof output.defaultTheme === "string" ? output.defaultTheme : "";
+      }
+      fs.writeFileSync(path.join(resolvedSrc, file), JSON.stringify(output, null, 2) + "\n", "utf8");
+      captured.push(file);
+      console.log(`  ${c.green}[✓]${c.reset} Captured ~/.t3/userdata/${file}`);
+    } catch (e) {
+      console.warn(`  ${c.yellow}[!]${c.reset} Could not parse ~/.t3/userdata/${file}: ${e.message}`);
+    }
+  }
+
+  const targetThemesDir = path.join(resolvedTarget, "themes");
+  const srcThemesDir = path.join(resolvedSrc, "themes");
+  const canSyncActiveTheme =
+    Boolean(activeThemeId) &&
+    !T3_BUILTIN_THEMES.has(activeThemeId) &&
+    T3_THEME_ID_RE.test(activeThemeId) &&
+    !/noctalia/i.test(activeThemeId);
+
+  if (canSyncActiveTheme) {
+    const themeFileName = `${activeThemeId}.json`;
+    if (desktopAppearance?.themeFile && desktopAppearance.defaultTheme === activeThemeId) {
+      fs.mkdirSync(srcThemesDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(srcThemesDir, themeFileName),
+        JSON.stringify(desktopAppearance.themeFile, null, 2) + "\n",
+        "utf8"
+      );
+      themes.push(themeFileName);
+    } else {
+      const targetThemeJson = path.join(targetThemesDir, themeFileName);
+      if (fs.existsSync(targetThemeJson) && fs.statSync(targetThemeJson).isFile()) {
+        fs.mkdirSync(srcThemesDir, { recursive: true });
+        fs.copyFileSync(targetThemeJson, path.join(srcThemesDir, themeFileName));
+        themes.push(themeFileName);
+      }
+    }
+
+    if (fs.existsSync(targetThemesDir)) {
+      for (const ext of T3_THEME_IMAGE_EXTENSIONS) {
+        const imgName = `${activeThemeId}${ext}`;
+        const imgSrc = path.join(targetThemesDir, imgName);
+        if (fs.existsSync(imgSrc) && fs.statSync(imgSrc).isFile()) {
+          fs.mkdirSync(srcThemesDir, { recursive: true });
+          fs.copyFileSync(imgSrc, path.join(srcThemesDir, imgName));
+          themes.push(imgName);
+        }
+      }
+    }
+  }
+
+  let prunedCount = 0;
+  if (fs.existsSync(srcThemesDir)) {
+    const keepSet = new Set(themes);
+    for (const entry of fs.readdirSync(srcThemesDir, { withFileTypes: true })) {
+      if (entry.isFile() && !keepSet.has(entry.name)) {
+        fs.unlinkSync(path.join(srcThemesDir, entry.name));
+        prunedCount += 1;
+      }
+    }
+  }
+
+  if (themes.length > 0) {
+    console.log(`  ${c.green}[✓]${c.reset} Captured ${themes.length} active T3 Code theme file(s)`);
+  } else if (prunedCount > 0) {
+    console.log(`  ${c.green}[✓]${c.reset} Synced T3 Code theme removals (${prunedCount} removed)`);
+  }
+
+  return { captured, themes };
+}
+
+export function applyT3Config({ srcDir, targetDir } = {}) {
+  const defaults = getT3Paths();
+  const resolvedSrc = srcDir || defaults.srcDir;
+  const resolvedTarget = targetDir || defaults.targetDir;
+  const applied = [];
+  const themes = [];
+
+  if (!fs.existsSync(resolvedSrc)) {
+    return { applied, themes };
+  }
+
+  fs.mkdirSync(resolvedTarget, { recursive: true });
+
+  const jsonMergeSpecs = [
+    { file: "settings.json", merge: mergeT3Settings },
+    { file: "client-settings.json", merge: mergeT3ClientSettings },
+  ];
+
+  for (const { file, merge } of jsonMergeSpecs) {
+    const tplPath = path.join(resolvedSrc, file);
+    if (!fs.existsSync(tplPath)) continue;
+
+    let template;
+    try {
+      template = JSON.parse(fs.readFileSync(tplPath, "utf8"));
+      if (!isPlainObject(template)) {
+        console.warn(`   ${c.yellow}[!]${c.reset} Skipping T3 Code ${file} template: expected JSON object`);
+        continue;
+      }
+    } catch (e) {
+      console.warn(`   ${c.yellow}[!]${c.reset} Could not parse T3 Code ${file} template: ${e.message}`);
+      continue;
+    }
+
+    const destPath = path.join(resolvedTarget, file);
+    let existing = {};
+    if (fs.existsSync(destPath)) {
+      try {
+        const parsedExisting = JSON.parse(fs.readFileSync(destPath, "utf8"));
+        if (!isPlainObject(parsedExisting)) {
+          console.warn(`   ${c.yellow}[!]${c.reset} Existing ~/.t3/userdata/${file} is not a JSON object; skipping overwrite`);
+          continue;
+        }
+        existing = parsedExisting;
+      } catch (e) {
+        console.warn(`   ${c.yellow}[!]${c.reset} Could not parse existing ~/.t3/userdata/${file}: ${e.message}; skipping overwrite`);
+        continue;
+      }
+    }
+
+    const merged = merge(existing, template);
+    fs.writeFileSync(destPath, JSON.stringify(merged, null, 2) + "\n", "utf8");
+    applied.push(file);
+    console.log(`   ${c.green}[✓]${c.reset} Applied T3 Code ${file}`);
+  }
+
+  const keybindingsSrc = path.join(resolvedSrc, "keybindings.json");
+  if (fs.existsSync(keybindingsSrc)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(keybindingsSrc, "utf8"));
+      if (!Array.isArray(parsed)) {
+        console.warn(`   ${c.yellow}[!]${c.reset} Skipping T3 Code keybindings.json: expected JSON array`);
+      } else {
+        fs.writeFileSync(path.join(resolvedTarget, "keybindings.json"), JSON.stringify(parsed, null, 2) + "\n", "utf8");
+        applied.push("keybindings.json");
+        console.log(`   ${c.green}[✓]${c.reset} Applied T3 Code keybindings.json`);
+      }
+    } catch (e) {
+      console.warn(`   ${c.yellow}[!]${c.reset} Could not parse T3 Code keybindings.json: ${e.message}`);
+    }
+  }
+
+  const srcThemesDir = path.join(resolvedSrc, "themes");
+  if (fs.existsSync(srcThemesDir)) {
+    const syncableThemes = fs
+      .readdirSync(srcThemesDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && isSyncableT3ThemeFile(entry.name))
+      .map((entry) => entry.name);
+
+    if (syncableThemes.length > 0) {
+      const destThemesDir = path.join(resolvedTarget, "themes");
+      fs.mkdirSync(destThemesDir, { recursive: true });
+      for (const name of syncableThemes) {
+        fs.copyFileSync(path.join(srcThemesDir, name), path.join(destThemesDir, name));
+        themes.push(name);
+      }
+      console.log(`   ${c.green}[✓]${c.reset} Applied ${themes.length} T3 Code theme file(s)`);
+    }
+  }
+
+  return { applied, themes };
+}
+
+export function enableT3Provider(t3Provider, { targetDir = getT3Paths().targetDir, preserveExistingEnabled = false } = {}) {
   if (!t3Provider?.id) return;
-  const userdata = expandHome("~/.t3/userdata");
-  fs.mkdirSync(userdata, { recursive: true });
-  const settingsDest = path.join(userdata, "settings.json");
+  fs.mkdirSync(targetDir, { recursive: true });
+  const settingsDest = path.join(targetDir, "settings.json");
   let existing = {};
   if (fs.existsSync(settingsDest)) {
     try {
@@ -216,15 +650,19 @@ function enableT3Provider(t3Provider) {
     } catch {}
   }
   existing.providerInstances = existing.providerInstances || {};
+  const current = existing.providerInstances[t3Provider.id] || {};
+  const enabled = preserveExistingEnabled && typeof current.enabled === "boolean" ? current.enabled : true;
   existing.providerInstances[t3Provider.id] = {
-    ...(existing.providerInstances[t3Provider.id] || {}),
+    ...current,
     driver: t3Provider.driver || t3Provider.id,
     ...(t3Provider.displayName ? { displayName: t3Provider.displayName } : {}),
-    enabled: true,
+    enabled,
     ...(t3Provider.config ? { config: t3Provider.config } : {}),
   };
   fs.writeFileSync(settingsDest, JSON.stringify(existing, null, 2) + "\n", "utf8");
-  console.log(`   ${c.green}[✓]${c.reset} Enabled ${t3Provider.displayName || t3Provider.id} provider in T3 Code`);
+  console.log(
+    `   ${c.green}[✓]${c.reset} ${enabled ? "Enabled" : "Configured"} ${t3Provider.displayName || t3Provider.id} provider in T3 Code`
+  );
 }
 
 // ========================================================
@@ -396,7 +834,7 @@ export async function setupHarness(id, h, { installCli = true, rl = null } = {})
 
   configureHarnessSkills(id, h, canonicalRoot, canonicalSkills);
   if (h.t3Provider) {
-    enableT3Provider(h.t3Provider);
+    enableT3Provider(h.t3Provider, { preserveExistingEnabled: !installCli });
   }
 }
 
@@ -501,15 +939,52 @@ export function runDoctor() {
     console.log(`  ${c.green}[•]${c.reset} ${h.name.padEnd(24)} ${parts}`);
   }
 
+  const { srcDir: t3SrcDir, targetDir: t3TargetDir } = getT3Paths(cfg);
+  const t3Files = ["settings.json", "client-settings.json", "keybindings.json"];
+  console.log(`\n${c.bold}T3 Code Config:${c.reset}`);
+  console.log(`  ${c.green}[✓]${c.reset} Synced Source: ${t3SrcDir}`);
+  console.log(`  ${c.green}[✓]${c.reset} Userdata Dir:  ${t3TargetDir}`);
+  for (const file of t3Files) {
+    const hasSrc = fs.existsSync(path.join(t3SrcDir, file));
+    const hasDest = fs.existsSync(path.join(t3TargetDir, file));
+    const status =
+      hasSrc && hasDest
+        ? `${c.green}synced & applied${c.reset}`
+        : hasSrc
+          ? `${c.yellow}in repo only (run agents apply)${c.reset}`
+          : hasDest
+            ? `${c.yellow}local only (run agents sync)${c.reset}`
+            : `${c.yellow}not present${c.reset}`;
+    console.log(`  ${hasSrc && hasDest ? `${c.green}[✓]${c.reset}` : `${c.yellow}[!]${c.reset}`} ${file.padEnd(22)} ${status}`);
+  }
+  const srcThemeCount = fs.existsSync(path.join(t3SrcDir, "themes"))
+    ? fs.readdirSync(path.join(t3SrcDir, "themes"), { withFileTypes: true }).filter((d) => d.isFile() && isSyncableT3ThemeFile(d.name)).length
+    : 0;
+  const destThemeCount = fs.existsSync(path.join(t3TargetDir, "themes"))
+    ? fs.readdirSync(path.join(t3TargetDir, "themes"), { withFileTypes: true }).filter((d) => d.isFile() && isSyncableT3ThemeFile(d.name)).length
+    : 0;
+  let activeThemeLabel = "not set";
+  const syncedSettingsPath = path.join(t3SrcDir, "settings.json");
+  if (fs.existsSync(syncedSettingsPath)) {
+    try {
+      const syncedSettings = JSON.parse(fs.readFileSync(syncedSettingsPath, "utf8"));
+      const tName = syncedSettings.defaultTheme || "default";
+      const tMode = syncedSettings.defaultAppearance || "auto";
+      activeThemeLabel = `${tName} (${tMode})`;
+    } catch {}
+  }
+  console.log(`  ${c.green}[•]${c.reset} ${"active theme:".padEnd(22)} ${activeThemeLabel}`);
+  console.log(`  ${c.green}[•]${c.reset} ${"themes/".padEnd(22)} repo: ${srcThemeCount}, local: ${destThemeCount}`);
+
   console.log("\n==========================================================\n");
 }
 
 // ========================================================
-// 5. SYNC (Capture Pi Config & Push Skills to GitHub)
+// 5. SYNC (Capture Pi & T3 Configs & Push Skills to GitHub)
 // ========================================================
 export async function runSync(args = [], rl = null) {
   console.log("\n==========================================================");
-  console.log("  🔄 Sync Skills & Pi Config to GitHub                    ");
+  console.log("  🔄 Sync Skills, Pi & T3 Code Configs to GitHub          ");
   console.log("==========================================================\n");
 
   let autoPush = args.includes("--push") || args.includes("-p");
@@ -536,6 +1011,8 @@ export async function runSync(args = [], rl = null) {
       console.warn(`  ${c.yellow}[!]${c.reset} Could not parse ~/.pi/agent/settings.json: ${e.message}`);
     }
   }
+
+  captureT3Config();
 
   const statusRes = spawnSync("git", ["status", "--porcelain"], { cwd: REPO_DIR, encoding: "utf8" });
   if (!isCmdOk(statusRes)) {
@@ -749,36 +1226,41 @@ export async function runInstall({ only = null, rl = null, applyOnly = false } =
   const entries = Object.entries(cfg.harnesses);
   const explicitSet = only ? new Set(only.map((m) => m.trim().toLowerCase())) : null;
 
-  // 1. Auto-install T3 Code (unless --only was specified without t3, or applyOnly is set)
-  if (!applyOnly && (!explicitSet || explicitSet.has("t3"))) {
-    setupT3({ autoInstall: true });
+  // 1. Auto-install & configure T3 Code (unless --only was specified without t3)
+  if (!explicitSet || explicitSet.has("t3")) {
+    if (!applyOnly) {
+      setupT3({ autoInstall: true });
+    } else {
+      console.log(`\n${c.cyan}:: Step 1: T3 Code Config...${c.reset}`);
+    }
+    applyT3Config();
   }
 
   // 2. Select harnesses from menu (unless --only or applyOnly was passed)
   const needsSkillsOrHarness = !explicitSet || explicitSet.has("skills") || entries.some(([id]) => explicitSet.has(id));
-  console.log(`\n${c.cyan}:: Step 2: Harnesses & Shared Skills (${cfg.skillsRoot || "~/.agents/skills"})...${c.reset}`);
-  const { canonicalRoot, canonicalSkills } = needsSkillsOrHarness
-    ? ensureCanonicalSkillsRoot(cfg)
-    : { canonicalRoot: cfg.skillsRoot || "~/.agents/skills", canonicalSkills: expandHome(cfg.skillsRoot || "~/.agents/skills") };
+  if (needsSkillsOrHarness) {
+    console.log(`\n${c.cyan}:: Step 2: Harnesses & Shared Skills (${cfg.skillsRoot || "~/.agents/skills"})...${c.reset}`);
+    const { canonicalRoot, canonicalSkills } = ensureCanonicalSkillsRoot(cfg);
 
-  let selectedIds = null;
-  if (!explicitSet && !applyOnly && rl) {
-    selectedIds = await promptHarnessMenu(entries, rl);
-  }
-
-  for (const [id, h] of entries) {
-    if (explicitSet) {
-      if (!explicitSet.has(id) && !explicitSet.has("skills")) continue;
-      if (explicitSet.has("skills") && !explicitSet.has(id)) {
-        configureHarnessSkills(id, h, canonicalRoot, canonicalSkills);
-        continue;
-      }
-    } else if (selectedIds && !selectedIds.has(id)) {
-      console.log(`   :: Skipping ${h.name}.`);
-      continue;
+    let selectedIds = null;
+    if (!explicitSet && !applyOnly && rl) {
+      selectedIds = await promptHarnessMenu(entries, rl);
     }
 
-    await setupHarness(id, h, { installCli: !applyOnly, rl });
+    for (const [id, h] of entries) {
+      if (explicitSet) {
+        if (!explicitSet.has(id) && !explicitSet.has("skills")) continue;
+        if (explicitSet.has("skills") && !explicitSet.has(id)) {
+          configureHarnessSkills(id, h, canonicalRoot, canonicalSkills);
+          continue;
+        }
+      } else if (selectedIds && !selectedIds.has(id)) {
+        console.log(`   :: Skipping ${h.name}.`);
+        continue;
+      }
+
+      await setupHarness(id, h, { installCli: !applyOnly, rl });
+    }
   }
 
   installGlobalBinWrappers();
@@ -909,10 +1391,10 @@ async function main() {
 Commands:
   (none)                  Interactive modular manager menu
   setup, -i, --install    Auto-install T3 Code & choose harnesses from a single menu
-  apply, --apply          Configure skills and apply Pi config without installing packages
+  apply, --apply          Configure skills and apply Pi & T3 Code configs without installing packages
   update, -u, --update    Update ~/.agents repo, Pi CLI, and Pi extensions
-  sync, -s, --sync        Sync skills and Pi settings to GitHub
-  doctor, -d, --doctor    Check system health and all harness skill configurations
+  sync, -s, --sync        Sync skills, Pi, and T3 Code settings to GitHub
+  doctor, -d, --doctor    Check system health, T3 Code config, and all harness skill configurations
   uninstall, --uninstall  Unlink compatibility symlinks and uninstall Pi CLI
 
 Options:
@@ -946,7 +1428,7 @@ Options:
     { id: "1", label: "Install T3 Code & Harnesses", hint: "(agents setup)" },
     { id: "2", label: "Apply Skills & Configs Only", hint: "(agents apply)" },
     { id: "3", label: "Update Repo, Pi CLI & Extensions", hint: "(agents update)" },
-    { id: "4", label: "Sync Skills & Pi Config to GitHub", hint: "(agents sync)" },
+    { id: "4", label: "Sync Skills, Pi & T3 Config to GitHub", hint: "(agents sync)" },
     { id: "5", label: "Run System Health Check", hint: "(agents doctor)" },
     { id: "6", label: "Uninstall", hint: "(agents uninstall)" },
     { id: "7", label: "Exit", hint: "" },

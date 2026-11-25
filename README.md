@@ -6,10 +6,11 @@ Follows the `agentskills.io` (`~/.agents/skills`) standard for **Pi Coding Agent
 
 ```text
 ~/.agents/
-├── harnesses.json       # Declarative registry of harnesses & skill discovery modes
+├── harnesses.json       # Declarative registry of harnesses, T3 Code config & skill modes
 ├── skills/              # Canonical skills (~/.agents/skills — auto-discovered natively)
 ├── configs/
-│   └── pi/              # Pi templates & custom-welcome extension
+│   ├── pi/              # Pi templates & custom-welcome extension
+│   └── t3/              # T3 Code settings, client preferences, keybindings & themes
 └── bin/
     ├── cli.mjs          # Cross-platform modular CLI
     ├── setup.sh         # Linux / macOS bootstrapper (prompts to install node/npm if missing)
@@ -34,10 +35,17 @@ git clone https://github.com/Ashur-D/.agents.git ~/.agents
 
 - `agents` — Interactive menu
 - `agents setup` — Install & configure modules (`--only skills,t3`, `--only skills,pi`)
-- `agents apply` — Configure skills and apply Pi config without installing packages
-- `agents doctor` — Health check for dependencies and all harness skill configurations
+- `agents apply` — Configure skills and apply Pi & T3 Code configs without installing packages
+- `agents doctor` — Health check for dependencies, T3 Code config, and all harness skill configurations
 - `agents update` — Update `~/.agents`, Pi CLI, and Pi extensions
-- `agents sync` — Sync `~/.agents/skills` and Pi settings to GitHub
+- `agents sync` — Sync `~/.agents/skills`, Pi settings, and T3 Code configs to GitHub
+
+## 🧩 T3 Code Sync Scope
+
+`agents sync` captures portable T3 Code preferences from `~/.t3/userdata/` into `configs/t3/`:
+
+- **Synced**: `settings.json` (favorites, model preferences/order, provider enablement & `customModels`, active theme & appearance mode, general preferences), `client-settings.json` (UI layout, glass opacity, contrast, fonts, editor/diff/browser/speech preferences), `keybindings.json`, and the active custom theme (exported from T3 Code Desktop's Local Storage in portable `EnvironmentThemeFile` v1 format, or copied from `~/.t3/userdata/themes/` alongside any companion background image, excluding `*noctalia*`, while pruning unused themes from `configs/t3/themes/`).
+- **Excluded (kept local)**: machine-specific fields (`environmentIcon`, `defaultThemeSetAt`, `defaultAppearanceSetAt`, `voiceMicrophone`, `voiceMicrophones`, `onboardingCompletedAt`, `browserProfiles`, `browserDefaultProfileId`, `sidebarProjectGroupingOverrides`, `pullRequestMergeMethodOverrides`), provider secrets/paths (`apiKey`, `token`, `gcpProject`, `gcpLocation`, `binaryPath`, `homePath`, `launchArgs`), window bounds (`desktop-settings.json`), SQLite databases, logs, secrets, and caches.
 
 ## 📚 Installed Skills & Sources
 

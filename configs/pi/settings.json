@@ -26,5 +26,13 @@
   "enableInstallTelemetry": false,
   "doubleEscapeAction": "none",
   "quietStartup": "header",
-  "steeringMode": "all"
+  "steeringMode": "all",
+  "extensionChangelogVersions": {
+    "{\"source\":\"npm:pi-web-access\",\"scope\":\"user\"}": "0.48.0",
+    "{\"source\":\"npm:pi-better-edit\",\"scope\":\"user\"}": "2.19.0",
+    "{\"source\":\"npm:pi-lens\",\"scope\":\"user\"}": "4.5.1",
+    "{\"source\":\"npm:pi-subagents\",\"scope\":\"user\"}": "0.89.0",
+    "{\"source\":\"npm:pi-context-view\",\"scope\":\"user\"}": "0.8.4",
+    "{\"source\":\"npm:@estebanforge/pi-antigravity-bridge\",\"scope\":\"user\"}": "1.10.8"
+  }
 }

@@ -1,0 +1,144 @@
+{
+  "favorites": [
+    {
+      "provider": "antigravity",
+      "model": "gemini-3.8-flash-medium"
+    },
+    {
+      "provider": "pi",
+      "model": "tabby/gemma-3-4b-it-exl3-8bpw-h8"
+    },
+    {
+      "provider": "pi",
+      "model": "antigravity/gemini-4-argon"
+    },
+    {
+      "provider": "pi",
+      "model": "antigravity/claude-opus-5-5"
+    },
+    {
+      "provider": "antigravity",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "provider": "antigravity",
+      "model": "gemini-4-hydrogen"
+    },
+    {
+      "provider": "pi",
+      "model": "antigravity/gemini-4-hydrogen"
+    },
+    {
+      "provider": "antigravity",
+      "model": "gemini-4-neon"
+    },
+    {
+      "provider": "antigravity",
+      "model": "gemini-pro-orchestrator-neon"
+    },
+    {
+      "provider": "antigravity",
+      "model": "gemini-pro-orchestrator"
+    },
+    {
+      "provider": "antigravity",
+      "model": "gemini-4-carbon"
+    }
+  ],
+  "providerModelPreferences": {
+    "pi": {
+      "hiddenModels": [
+        "antigravity/gemini-2.5-pro",
+        "antigravity/gemini-3.1-pro",
+        "antigravity/gemini-2.5-flash-lite",
+        "antigravity/gemini-2.5-flash",
+        "antigravity/gemini-3-flash",
+        "antigravity/gemini-3.1-flash-lite",
+        "antigravity/gemini-3.5-flash-lite",
+        "antigravity/gemini-3.5-flash",
+        "antigravity/gemini-3.6-flash",
+        "antigravity/gemini-3.7-flash",
+        "antigravity/gemini-4-argon-disabled",
+        "default"
+      ],
+      "modelOrder": [
+        "antigravity/gemini-3.8-flash",
+        "antigravity/gemini-4-argon",
+        "antigravity/claude-opus-4-6",
+        "antigravity/claude-sonnet-4-6",
+        "antigravity/gpt-oss-120b",
+        "default",
+        "antigravity/gemini-3.7-flash",
+        "antigravity/gemini-3.6-flash",
+        "antigravity/gemini-3.1-pro"
+      ]
+    },
+    "antigravity": {
+      "hiddenModels": [
+        "gemini-3.1-pro-low",
+        "gemini-pro-agent",
+        "gemini-3.6-flash-low",
+        "gemini-3.6-flash-medium",
+        "gemini-3.6-flash-high",
+        "gemini-3.7-flash-low",
+        "gemini-3.7-flash-medium",
+        "gemini-3.7-flash-high"
+      ],
+      "modelOrder": [
+        "gemini-3.8-flash",
+        "gemini-4-argon",
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "gpt-oss-120b-medium"
+      ]
+    },
+    "opencode": {
+      "hiddenModels": [
+        "opencode/nemotron-3.5-super-vl-free",
+        "opencode/nemotron-3.5-lightning-free",
+        "opencode/longcat-2.5-free",
+        "opencode/inkling-2-small-free",
+        "opencode/iceman-free",
+        "opencode/flint-40b-free"
+      ],
+      "modelOrder": []
+    }
+  },
+  "projectSettingsFolded": true,
+  "enableAgentDeviceAccess": true,
+  "enableDeviceSupport": true,
+  "idleCompaction": "onReturn",
+  "guestSharingEnabled": true,
+  "linkedEnvironmentsEnabled": true,
+  "defaultTheme": "midnight-lo-fi-studio-reference-edition",
+  "defaultAppearance": "dark",
+  "threadTitleInstructions": "Keep title to few words. Lead with main subject",
+  "providerInstances": {
+    "antigravity": {
+      "driver": "antigravity",
+      "enabled": true
+    },
+    "pi": {
+      "driver": "pi",
+      "displayName": "Pi",
+      "enabled": false
+    },
+    "codex": {
+      "driver": "codex",
+      "enabled": false
+    },
+    "opencode": {
+      "driver": "opencode",
+      "displayName": "OpenCode",
+      "enabled": true
+    },
+    "claudeAgent": {
+      "driver": "claudeAgent",
+      "enabled": false
+    }
+  },
+  "usageModelAliases": {
+    "gemini-3.8-flash-n": "antigravity/gemini-3.8-flash",
+    "gemini-4-argon-trial": "antigravity/gemini-4-argon"
+  }
+}

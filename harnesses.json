@@ -1,5 +1,9 @@
 {
   "skillsRoot": "~/.agents/skills",
+  "t3": {
+    "configDir": "configs/t3",
+    "targetDir": "~/.t3/userdata"
+  },
   "harnesses": {
     "pi": {
       "name": "Pi Coding Agent",

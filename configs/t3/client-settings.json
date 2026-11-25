@@ -1,0 +1,131 @@
+{
+  "notificationMode": "notifications",
+  "inAppNotificationsEnabled": true,
+  "diffColorScheme": "red-green",
+  "chatWidth": "comfortable",
+  "htmlPreviewWidth": "chat",
+  "effortDisplay": "label",
+  "loadBalancingEnabled": false,
+  "loadBalancingWeights": {},
+  "appearanceContrast": 100,
+  "panelAnimationDurationMs": 0,
+  "browserDefaultViewport": {
+    "_tag": "fill"
+  },
+  "browserDefaultZoomFactor": 1,
+  "browserDefaultAppearance": "system",
+  "browserRecordingFrameRate": 30,
+  "browserRecordingShowKeyPresses": false,
+  "browserRecordingShowMousePresses": false,
+  "browserLinkTarget": "system",
+  "browserSearchEngine": "duckduckgo",
+  "browserCustomSearchUrl": "",
+  "browserAutoShowFloatingPreview": true,
+  "confirmQuit": "hold",
+  "confirmThreadArchive": false,
+  "confirmTerminalClose": true,
+  "confirmThreadDelete": true,
+  "confirmThreadUnpin": false,
+  "diffFilesCollapsed": true,
+  "diffIgnoreWhitespace": true,
+  "diffLayout": "stacked",
+  "environmentIdentificationMode": "artwork",
+  "glassOpacity": 80,
+  "fontSizeInterface": 16,
+  "fontSizePrompt": 14,
+  "fontSizeCode": 13,
+  "fontSizeTerminal": 12,
+  "fontFamilyCode": "Maple Mono",
+  "fontFamilyComposer": "",
+  "fontFamilySans": "Maple Mono",
+  "fontFamilyTerminal": "",
+  "fontSmoothing": true,
+  "persistComposerContextStrip": false,
+  "favorites": [
+    {
+      "provider": "antigravity",
+      "model": "gemini-3.8-flash-medium"
+    },
+    {
+      "provider": "pi",
+      "model": "antigravity/gemini-3.8-flash"
+    }
+  ],
+  "providerModelPreferences": {
+    "pi": {
+      "hiddenModels": [
+        "antigravity/gemini-2.5-pro",
+        "antigravity/gemini-3.1-pro",
+        "antigravity/gemini-2.5-flash-lite",
+        "antigravity/gemini-2.5-flash",
+        "antigravity/gemini-3-flash",
+        "antigravity/gemini-3.1-flash-lite",
+        "antigravity/gemini-3.5-flash-lite",
+        "antigravity/gemini-3.5-flash",
+        "antigravity/gemini-3.6-flash",
+        "antigravity/gemini-3.7-flash",
+        "default"
+      ],
+      "modelOrder": []
+    },
+    "antigravity": {
+      "hiddenModels": [
+        "gemini-3.1-pro-low",
+        "gemini-pro-agent",
+        "gemini-3.6-flash-low",
+        "gemini-3.6-flash-medium",
+        "gemini-3.6-flash-high",
+        "gemini-3.7-flash-low",
+        "gemini-3.7-flash-medium",
+        "gemini-3.7-flash-high"
+      ],
+      "modelOrder": []
+    }
+  },
+  "pullRequestLinksOpenInApp": true,
+  "composerRichTextEnabled": true,
+  "sendShortcut": "enter",
+  "followUpBehavior": "steer",
+  "sideThreadOpenTarget": "panel",
+  "proactivePanelsEnabled": false,
+  "showSkillsInSlashMenu": true,
+  "boringSidebarEnabled": false,
+  "boringSidebarMultilineRows": false,
+  "toolCallVisibility": "showAll",
+  "screenReaderAnnouncements": "status",
+  "screenReaderWindowTitle": false,
+  "threadDetailsUsageEnabled": false,
+  "threadDetailsItems": {
+    "usage": true,
+    "context": true
+  },
+  "sidebarWorkingShelfEnabled": true,
+  "sidebarProjectGroupingMode": "repository",
+  "sidebarProjectSortOrder": "updated_at",
+  "sidebarThreadSortOrder": "updated_at",
+  "timestampFormat": "locale",
+  "voiceShortcutMode": "auto",
+  "speechLanguage": "auto",
+  "speechTranslateToEnglish": false,
+  "speechCustomWords": [],
+  "speechSilenceFiltering": true,
+  "speechStreaming": true,
+  "speechRemoveFillerWords": true,
+  "speechPostProcessingPrompt": {
+    "mode": "default",
+    "customInstructions": ""
+  },
+  "speechCorrectionWord": "",
+  "language": "en",
+  "snapShotEnabled": false,
+  "snapShotIncludeAccessibility": true,
+  "snapShotShortcut": {
+    "kind": "both-shift-keys"
+  },
+  "snapShotPlaySound": true,
+  "snapShotSound": "soft-pop",
+  "snapShotFlash": true,
+  "snapShotAnimations": true,
+  "wordWrap": true,
+  "mathRenderingEnabled": true
+}
