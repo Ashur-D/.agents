@@ -40,13 +40,6 @@ git clone https://github.com/Ashur-D/.agents.git ~/.agents
 - `agents update` — Update `~/.agents`, Pi CLI, and Pi extensions
 - `agents sync` — Sync `~/.agents/skills`, Pi settings, and T3 Code configs to GitHub
 
-## 🧩 T3 Code Sync Scope
-
-`agents sync` captures portable T3 Code preferences from `~/.t3/userdata/` into `configs/t3/`:
-
-- **Synced**: `settings.json` (favorites, model preferences/order, provider enablement & `customModels`, active theme & appearance mode, general preferences), `client-settings.json` (UI layout, glass opacity, contrast, fonts, editor/diff/browser/speech preferences), `keybindings.json`, and the active custom theme (exported from T3 Code Desktop's Local Storage in portable `EnvironmentThemeFile` v1 format, or copied from `~/.t3/userdata/themes/` alongside any companion background image, excluding `*noctalia*`, while pruning unused themes from `configs/t3/themes/`).
-- **Excluded (kept local)**: machine-specific fields (`environmentIcon`, `defaultThemeSetAt`, `defaultAppearanceSetAt`, `voiceMicrophone`, `voiceMicrophones`, `onboardingCompletedAt`, `browserProfiles`, `browserDefaultProfileId`, `sidebarProjectGroupingOverrides`, `pullRequestMergeMethodOverrides`), provider secrets/paths (`apiKey`, `token`, `gcpProject`, `gcpLocation`, `binaryPath`, `homePath`, `launchArgs`), window bounds (`desktop-settings.json`), SQLite databases, logs, secrets, and caches.
-
 ## 📚 Installed Skills & Sources
 
 Skills remain flat under `skills/<name>/SKILL.md` for `agentskills.io` and harness compatibility, grouped here by upstream creator:
