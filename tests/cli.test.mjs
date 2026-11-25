@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import {
   applyAgyConfig,
   applyT3Config,
+  buildInstallTargets,
   captureAgyConfig,
   captureT3Config,
   configureHarnessSkills,
@@ -21,7 +22,6 @@ import {
   parseHarnessSelection,
   readT3DesktopAppearance,
   resolveDesktopActiveTheme,
-  resolveInstallProfile,
   sanitizeAgyConfig,
   sanitizeT3ClientSettings,
   sanitizeT3Settings,
@@ -621,13 +621,18 @@ describe("T3 Desktop LevelDB appearance detection", () => {
   });
 });
 
-describe("resolveInstallProfile", () => {
-  it("maps interactive profile choices to target modules", () => {
-    assert.equal(resolveInstallProfile("1"), null);
-    assert.deepEqual(resolveInstallProfile("2"), ["agy"]);
-    assert.deepEqual(resolveInstallProfile("agy"), ["agy"]);
-    assert.deepEqual(resolveInstallProfile("3"), ["t3", "skills"]);
-    assert.deepEqual(resolveInstallProfile("t3code"), ["t3", "skills"]);
+describe("buildInstallTargets", () => {
+  it("includes t3 and all harnesses so user can select t3code, one harness, or multiple harnesses", () => {
+    const targets = buildInstallTargets();
+    assert.deepEqual(
+      targets.map(([id]) => id),
+      ["t3", "pi", "opencode", "agy"]
+    );
+    assert.deepEqual([...parseHarnessSelection("1", targets)], ["t3"]);
+    assert.deepEqual([...parseHarnessSelection("4", targets)], ["agy"]);
+    assert.deepEqual([...parseHarnessSelection("pi,agy", targets)], ["pi", "agy"]);
+    assert.deepEqual([...parseHarnessSelection("t3 agy", targets)], ["t3", "agy"]);
+    assert.deepEqual([...parseHarnessSelection("a", targets)], ["t3", "pi", "opencode", "agy"]);
   });
 });
 

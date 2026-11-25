@@ -35,7 +35,7 @@ git clone https://github.com/Ashur-D/.agents.git ~/.agents
 ## 🛠️ CLI Commands
 
 - `agents` — Interactive menu
-- `agents setup` — Choose **T3 Code + Harnesses**, **Antigravity (`agy`) only**, or **T3 Code only** (or pass `--only agy`, `--only skills,t3`, `--only skills,pi`)
+- `agents setup` — Select `t3code` and/or individual/multiple harnesses (`pi`, `opencode`, `agy`) from one checklist (or pass `--only agy`, `--only t3`, `--only pi,agy`)
 - `agents apply` — Configure skills and apply Pi, T3 Code & Agy configs without installing packages
 - `agents doctor` — Health check for dependencies, T3 Code & Agy configs, and all harness skill configurations
 - `agents update` — Update `~/.agents`, Pi CLI, and Pi extensions

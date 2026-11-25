@@ -1248,18 +1248,29 @@ export function parseHarnessSelection(raw, entries) {
   return chosen;
 }
 
+export function buildInstallTargets(cfg = loadHarnessesConfig()) {
+  return [
+    ["t3", { name: "T3 Code", bin: ["t3code", "t3"], isInstalled: isT3Installed }],
+    ...Object.entries(cfg.harnesses || {}),
+  ];
+}
+
+function getTargetBadge(h) {
+  const bins = Array.isArray(h.bin) ? h.bin : h.bin ? [h.bin] : [];
+  if (bins.length === 0 && typeof h.isInstalled !== "function") return "";
+  const installed = typeof h.isInstalled === "function" ? h.isInstalled() : bins.some(commandExists);
+  return installed ? ` ${c.green}(installed)${c.reset}` : ` ${c.yellow}(not installed)${c.reset}`;
+}
+
 async function promptHarnessMenu(entries, interactive) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    console.log(`\n${c.bold}Select harnesses to install & configure:${c.reset}`);
+    console.log(`\n${c.bold}Select targets to install & configure:${c.reset}`);
     entries.forEach(([id, h], idx) => {
-      const bins = Array.isArray(h.bin) ? h.bin : h.bin ? [h.bin] : [];
-      const installed = bins.some(commandExists);
-      const badge = bins.length === 0 ? "" : installed ? ` ${c.green}(installed)${c.reset}` : ` ${c.yellow}(not installed)${c.reset}`;
-      console.log(`  ${idx + 1}) ${h.name.padEnd(24)} [${id}]${badge}`);
+      console.log(`  ${idx + 1}) ${h.name.padEnd(24)} [${id}]${getTargetBadge(h)}`);
     });
-    console.log(`  a) All harnesses (default)`);
-    console.log(`  n) None (skip harnesses)\n`);
-    const raw = await ask(interactive, `Enter choices (e.g. 1,3 or pi,agy or a for all) [a]: `, "a");
+    console.log(`  a) All targets (default)`);
+    console.log(`  n) None (skip targets)\n`);
+    const raw = await ask(interactive, `Enter choices (e.g. 1 or 2,4 or t3,agy or a for all) [a]: `, "a");
     return parseHarnessSelection(raw, entries);
   }
 
@@ -1268,18 +1279,14 @@ async function promptHarnessMenu(entries, interactive) {
   let cursor = 0;
   let renderedRows = 0;
 
-  const badges = entries.map(([, h]) => {
-    const bins = Array.isArray(h.bin) ? h.bin : h.bin ? [h.bin] : [];
-    const installed = bins.some(commandExists);
-    return bins.length === 0 ? "" : installed ? ` ${c.green}(installed)${c.reset}` : ` ${c.yellow}(not installed)${c.reset}`;
-  });
+  const badges = entries.map(([, h]) => getTargetBadge(h));
 
   const render = () => {
     if (renderedRows > 0) {
       process.stdout.write(`\r\x1b[${renderedRows}A\r\x1b[0J`);
     }
     const lines = [
-      `${c.bold}Select harnesses to install & configure:${c.reset}`,
+      `${c.bold}Select targets to install & configure:${c.reset}`,
       `${c.cyan}(↑/↓ move, Space toggle, a all, n none, Enter confirm)${c.reset}`,
       ...entries.map(([id, h], idx) => {
         const active = idx === cursor;
@@ -1343,38 +1350,18 @@ async function promptHarnessMenu(entries, interactive) {
   });
 }
 
-export function resolveInstallProfile(choice) {
-  const normalized = String(choice || "").trim().toLowerCase();
-  if (normalized === "2" || normalized === "agy" || normalized === "antigravity") {
-    return ["agy"];
-  }
-  if (normalized === "3" || normalized === "t3" || normalized === "t3code") {
-    return ["t3", "skills"];
-  }
-  return null;
-}
-
 export async function runInstall({ only = null, rl = null, applyOnly = false } = {}) {
   const cfg = loadHarnessesConfig();
   const entries = Object.entries(cfg.harnesses);
-  let resolvedOnly = only;
 
-  if (!resolvedOnly && !applyOnly && rl) {
-    const profileChoice = await promptActionMenu(
-      [
-        { id: "1", label: "T3 Code + Harnesses", hint: "(t3code + choose pi/opencode/agy)" },
-        { id: "2", label: "Antigravity (agy) only", hint: "(install agy + skills + config.json)" },
-        { id: "3", label: "T3 Code only", hint: "(install t3code + link skills)" },
-      ],
-      rl
-    );
-    resolvedOnly = resolveInstallProfile(profileChoice);
+  let explicitSet = only ? new Set(only.map((m) => m.trim().toLowerCase())) : null;
+  if (!explicitSet && !applyOnly && rl) {
+    explicitSet = await promptHarnessMenu(buildInstallTargets(cfg), rl);
   }
 
-  const explicitSet = resolvedOnly ? new Set(resolvedOnly.map((m) => m.trim().toLowerCase())) : null;
   const shouldConfigureT3 = !explicitSet || explicitSet.has("t3");
 
-  // 1. Auto-install & configure T3 Code (unless --only / profile excluded t3)
+  // 1. Install & configure T3 Code if selected
   if (shouldConfigureT3) {
     if (!applyOnly) {
       setupT3({ autoInstall: true });
@@ -1384,16 +1371,12 @@ export async function runInstall({ only = null, rl = null, applyOnly = false } =
     applyT3Config();
   }
 
-  // 2. Select harnesses from menu (unless --only or applyOnly was passed)
-  const needsSkillsOrHarness = !explicitSet || explicitSet.has("skills") || entries.some(([id]) => explicitSet.has(id));
+  // 2. Configure canonical skills & selected harnesses
+  const needsSkillsOrHarness =
+    shouldConfigureT3 || !explicitSet || explicitSet.has("skills") || entries.some(([id]) => explicitSet.has(id));
   if (needsSkillsOrHarness) {
     console.log(`\n${c.cyan}:: Step 2: Harnesses & Shared Skills (${cfg.skillsRoot || "~/.agents/skills"})...${c.reset}`);
     const { canonicalRoot, canonicalSkills } = ensureCanonicalSkillsRoot(cfg);
-
-    let selectedIds = null;
-    if (!explicitSet && !applyOnly && rl) {
-      selectedIds = await promptHarnessMenu(entries, rl);
-    }
 
     for (const [id, h] of entries) {
       if (explicitSet) {
@@ -1402,9 +1385,6 @@ export async function runInstall({ only = null, rl = null, applyOnly = false } =
           configureHarnessSkills(id, h, canonicalRoot, canonicalSkills);
           continue;
         }
-      } else if (selectedIds && !selectedIds.has(id)) {
-        console.log(`   :: Skipping ${h.name}.`);
-        continue;
       }
 
       await setupHarness(id, h, { installCli: !applyOnly, rl, configureT3: shouldConfigureT3 });
