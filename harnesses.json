@@ -41,7 +41,9 @@
         "driver": "antigravity"
       },
       "skillsMode": "symlink",
-      "skillsPath": "~/.gemini/config/skills"
+      "skillsPath": "~/.gemini/config/skills",
+      "configDir": "configs/agy",
+      "configTarget": "~/.gemini/config/config.json"
     }
   }
 }

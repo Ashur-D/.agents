@@ -7,17 +7,22 @@ import { afterEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  applyAgyConfig,
   applyT3Config,
+  captureAgyConfig,
   captureT3Config,
   configureHarnessSkills,
   enableT3Provider,
   ensureCanonicalSkillsRoot,
+  mergeAgyConfig,
   mergePiSettings,
   mergeT3ClientSettings,
   mergeT3Settings,
   parseHarnessSelection,
   readT3DesktopAppearance,
   resolveDesktopActiveTheme,
+  resolveInstallProfile,
+  sanitizeAgyConfig,
   sanitizeT3ClientSettings,
   sanitizeT3Settings,
   toEnvironmentThemeFile,
@@ -613,5 +618,83 @@ describe("T3 Desktop LevelDB appearance detection", () => {
     assert.equal(fs.existsSync(path.join(repoCfgDir, "themes", "midnight-custom.json")), true);
     assert.equal(fs.existsSync(path.join(repoCfgDir, "themes", "ocean-wallpaper.json")), false);
     assert.equal(fs.existsSync(path.join(repoCfgDir, "themes", "zeron.json")), false);
+  });
+});
+
+describe("resolveInstallProfile", () => {
+  it("maps interactive profile choices to target modules", () => {
+    assert.equal(resolveInstallProfile("1"), null);
+    assert.deepEqual(resolveInstallProfile("2"), ["agy"]);
+    assert.deepEqual(resolveInstallProfile("agy"), ["agy"]);
+    assert.deepEqual(resolveInstallProfile("3"), ["t3", "skills"]);
+    assert.deepEqual(resolveInstallProfile("t3code"), ["t3", "skills"]);
+  });
+});
+
+describe("Antigravity config sanitization and merging", () => {
+  it("configs/agy/config.json is valid and excludes sidecars and remoteControlHostname", () => {
+    const raw = fs.readFileSync(path.join(REPO_DIR, "configs", "agy", "config.json"), "utf8");
+    const cfg = JSON.parse(raw);
+    assert.equal("sidecars" in cfg, false);
+    assert.ok(cfg.userSettings && typeof cfg.userSettings === "object");
+    assert.equal("remoteControlHostname" in cfg.userSettings, false);
+  });
+
+  it("sanitizeAgyConfig strips sidecars, remoteControlHostname, and secrets while keeping userSettings", () => {
+    const sanitized = sanitizeAgyConfig({
+      sidecars: { "swarm/swarm_board": { projectId: "abc-123" } },
+      userSettings: {
+        artifactReviewMode: "ARTIFACT_REVIEW_MODE_ALWAYS",
+        remoteControlHostname: "my-pc",
+        apiToken: "secret-123",
+      },
+    });
+    assert.deepEqual(sanitized, {
+      userSettings: {
+        artifactReviewMode: "ARTIFACT_REVIEW_MODE_ALWAYS",
+      },
+    });
+  });
+
+  it("mergeAgyConfig and captureAgyConfig/applyAgyConfig round-trip without clobbering local state", () => {
+    const tmp = makeTempDir();
+    const machineA = path.join(tmp, "machineA-config.json");
+    const repoSrc = path.join(tmp, "repo-agy");
+    const machineB = path.join(tmp, "machineB-config.json");
+
+    fs.writeFileSync(
+      machineA,
+      JSON.stringify({
+        sidecars: { "swarm/swarm_board": { projectId: "proj-a" } },
+        userSettings: {
+          remoteControlHostname: "host-a",
+          permissionPreset: "AGENT_PERMISSION_PRESET_TURBO",
+        },
+      }),
+      "utf8"
+    );
+
+    assert.equal(captureAgyConfig({ srcDir: repoSrc, targetFile: machineA }).captured, true);
+    const saved = JSON.parse(fs.readFileSync(path.join(repoSrc, "config.json"), "utf8"));
+    assert.equal("sidecars" in saved, false);
+    assert.equal("remoteControlHostname" in saved.userSettings, false);
+
+    fs.writeFileSync(
+      machineB,
+      JSON.stringify({
+        sidecars: { "swarm/swarm_board": { projectId: "proj-b" } },
+        userSettings: {
+          remoteControlHostname: "host-b",
+          permissionPreset: "AGENT_PERMISSION_PRESET_DEFAULT",
+        },
+      }),
+      "utf8"
+    );
+
+    assert.equal(applyAgyConfig({ srcDir: repoSrc, targetFile: machineB }).applied, true);
+    const appliedB = JSON.parse(fs.readFileSync(machineB, "utf8"));
+    assert.equal(appliedB.sidecars["swarm/swarm_board"].projectId, "proj-b");
+    assert.equal(appliedB.userSettings.remoteControlHostname, "host-b");
+    assert.equal(appliedB.userSettings.permissionPreset, "AGENT_PERMISSION_PRESET_TURBO");
   });
 });

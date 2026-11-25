@@ -665,6 +665,110 @@ export function enableT3Provider(t3Provider, { targetDir = getT3Paths().targetDi
   );
 }
 
+const AGY_USER_SETTINGS_LOCAL_KEYS = new Set(["remoteControlHostname"]);
+
+export function getAgyPaths(cfg = loadHarnessesConfig(), repoDir = REPO_DIR) {
+  const agy = cfg.harnesses?.agy || {};
+  return {
+    srcDir: path.join(repoDir, agy.configDir || "configs/agy"),
+    targetFile: expandHome(agy.configTarget || "~/.gemini/config/config.json"),
+  };
+}
+
+export function sanitizeAgyConfig(raw = {}) {
+  const cleaned = {};
+  if (isPlainObject(raw.userSettings)) {
+    const cleanUserSettings = {};
+    for (const [key, value] of Object.entries(raw.userSettings)) {
+      if (AGY_USER_SETTINGS_LOCAL_KEYS.has(key) || isSensitiveKey(key)) continue;
+      cleanUserSettings[key] = value;
+    }
+    cleaned.userSettings = cleanUserSettings;
+  }
+  return cleaned;
+}
+
+export function mergeAgyConfig(existing = {}, template = {}) {
+  const merged = { ...existing };
+  if (isPlainObject(existing.userSettings) || isPlainObject(template.userSettings)) {
+    merged.userSettings = {
+      ...(isPlainObject(existing.userSettings) ? existing.userSettings : {}),
+      ...(isPlainObject(template.userSettings) ? template.userSettings : {}),
+    };
+  }
+  return merged;
+}
+
+export function captureAgyConfig({ srcDir, targetFile } = {}) {
+  const defaults = getAgyPaths();
+  const resolvedSrc = srcDir || defaults.srcDir;
+  const resolvedTarget = targetFile || defaults.targetFile;
+
+  if (!fs.existsSync(resolvedTarget)) {
+    return { captured: false };
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(resolvedTarget, "utf8"));
+    if (!isPlainObject(parsed)) {
+      console.warn(`  ${c.yellow}[!]${c.reset} Skipping ~/.gemini/config/config.json: expected JSON object`);
+      return { captured: false };
+    }
+    const sanitized = sanitizeAgyConfig(parsed);
+    fs.mkdirSync(resolvedSrc, { recursive: true });
+    fs.writeFileSync(path.join(resolvedSrc, "config.json"), JSON.stringify(sanitized, null, 2) + "\n", "utf8");
+    console.log(`  ${c.green}[✓]${c.reset} Captured ~/.gemini/config/config.json (userSettings)`);
+    return { captured: true };
+  } catch (e) {
+    console.warn(`  ${c.yellow}[!]${c.reset} Could not parse ~/.gemini/config/config.json: ${e.message}`);
+    return { captured: false };
+  }
+}
+
+export function applyAgyConfig({ srcDir, targetFile } = {}) {
+  const defaults = getAgyPaths();
+  const resolvedSrc = srcDir || defaults.srcDir;
+  const resolvedTarget = targetFile || defaults.targetFile;
+  const tplPath = path.join(resolvedSrc, "config.json");
+
+  if (!fs.existsSync(tplPath)) {
+    return { applied: false };
+  }
+
+  let template;
+  try {
+    template = JSON.parse(fs.readFileSync(tplPath, "utf8"));
+    if (!isPlainObject(template)) {
+      console.warn(`   ${c.yellow}[!]${c.reset} Skipping Antigravity config.json template: expected JSON object`);
+      return { applied: false };
+    }
+  } catch (e) {
+    console.warn(`   ${c.yellow}[!]${c.reset} Could not parse Antigravity config.json template: ${e.message}`);
+    return { applied: false };
+  }
+
+  let existing = {};
+  if (fs.existsSync(resolvedTarget)) {
+    try {
+      const parsedExisting = JSON.parse(fs.readFileSync(resolvedTarget, "utf8"));
+      if (!isPlainObject(parsedExisting)) {
+        console.warn(`   ${c.yellow}[!]${c.reset} Existing ~/.gemini/config/config.json is not a JSON object; skipping overwrite`);
+        return { applied: false };
+      }
+      existing = parsedExisting;
+    } catch (e) {
+      console.warn(`   ${c.yellow}[!]${c.reset} Could not parse existing ~/.gemini/config/config.json: ${e.message}; skipping overwrite`);
+      return { applied: false };
+    }
+  }
+
+  fs.mkdirSync(path.dirname(resolvedTarget), { recursive: true });
+  const merged = mergeAgyConfig(existing, template);
+  fs.writeFileSync(resolvedTarget, JSON.stringify(merged, null, 2) + "\n", "utf8");
+  console.log(`   ${c.green}[✓]${c.reset} Applied Antigravity config.json (userSettings)`);
+  return { applied: true };
+}
+
 // ========================================================
 // 2. SKILLS & HARNESS CONFIGURATION
 // ========================================================
@@ -792,7 +896,7 @@ export async function setupPi({ installCli = true, rl = null } = {}) {
   }
 }
 
-export async function setupHarness(id, h, { installCli = true, rl = null } = {}) {
+export async function setupHarness(id, h, { installCli = true, rl = null, configureT3 = true } = {}) {
   const cfg = loadHarnessesConfig();
   const canonicalRoot = cfg.skillsRoot || "~/.agents/skills";
   const canonicalSkills = expandHome(canonicalRoot);
@@ -833,7 +937,10 @@ export async function setupHarness(id, h, { installCli = true, rl = null } = {})
   }
 
   configureHarnessSkills(id, h, canonicalRoot, canonicalSkills);
-  if (h.t3Provider) {
+  if (id === "agy") {
+    applyAgyConfig();
+  }
+  if (configureT3 && h.t3Provider) {
     enableT3Provider(h.t3Provider, { preserveExistingEnabled: !installCli });
   }
 }
@@ -976,15 +1083,29 @@ export function runDoctor() {
   console.log(`  ${c.green}[•]${c.reset} ${"active theme:".padEnd(22)} ${activeThemeLabel}`);
   console.log(`  ${c.green}[•]${c.reset} ${"themes/".padEnd(22)} repo: ${srcThemeCount}, local: ${destThemeCount}`);
 
+  const { srcDir: agySrcDir, targetFile: agyTargetFile } = getAgyPaths(cfg);
+  const hasAgySrc = fs.existsSync(path.join(agySrcDir, "config.json"));
+  const hasAgyDest = fs.existsSync(agyTargetFile);
+  const agyCfgStatus =
+    hasAgySrc && hasAgyDest
+      ? `${c.green}synced & applied${c.reset}`
+      : hasAgySrc
+        ? `${c.yellow}in repo only (run agents apply)${c.reset}`
+        : hasAgyDest
+          ? `${c.yellow}local only (run agents sync)${c.reset}`
+          : `${c.yellow}not present${c.reset}`;
+  console.log(`\n${c.bold}Antigravity Config:${c.reset}`);
+  console.log(`  ${hasAgySrc && hasAgyDest ? `${c.green}[✓]${c.reset}` : `${c.yellow}[!]${c.reset}`} ${"config.json".padEnd(22)} ${agyCfgStatus}`);
+
   console.log("\n==========================================================\n");
 }
 
 // ========================================================
-// 5. SYNC (Capture Pi & T3 Configs & Push Skills to GitHub)
+// 5. SYNC (Capture Pi, T3 & Agy Configs & Push Skills to GitHub)
 // ========================================================
 export async function runSync(args = [], rl = null) {
   console.log("\n==========================================================");
-  console.log("  🔄 Sync Skills, Pi & T3 Code Configs to GitHub          ");
+  console.log("  🔄 Sync Skills, Pi, T3 & Agy Configs to GitHub          ");
   console.log("==========================================================\n");
 
   let autoPush = args.includes("--push") || args.includes("-p");
@@ -1013,6 +1134,7 @@ export async function runSync(args = [], rl = null) {
   }
 
   captureT3Config();
+  captureAgyConfig();
 
   const statusRes = spawnSync("git", ["status", "--porcelain"], { cwd: REPO_DIR, encoding: "utf8" });
   if (!isCmdOk(statusRes)) {
@@ -1221,13 +1343,39 @@ async function promptHarnessMenu(entries, interactive) {
   });
 }
 
+export function resolveInstallProfile(choice) {
+  const normalized = String(choice || "").trim().toLowerCase();
+  if (normalized === "2" || normalized === "agy" || normalized === "antigravity") {
+    return ["agy"];
+  }
+  if (normalized === "3" || normalized === "t3" || normalized === "t3code") {
+    return ["t3", "skills"];
+  }
+  return null;
+}
+
 export async function runInstall({ only = null, rl = null, applyOnly = false } = {}) {
   const cfg = loadHarnessesConfig();
   const entries = Object.entries(cfg.harnesses);
-  const explicitSet = only ? new Set(only.map((m) => m.trim().toLowerCase())) : null;
+  let resolvedOnly = only;
 
-  // 1. Auto-install & configure T3 Code (unless --only was specified without t3)
-  if (!explicitSet || explicitSet.has("t3")) {
+  if (!resolvedOnly && !applyOnly && rl) {
+    const profileChoice = await promptActionMenu(
+      [
+        { id: "1", label: "T3 Code + Harnesses", hint: "(t3code + choose pi/opencode/agy)" },
+        { id: "2", label: "Antigravity (agy) only", hint: "(install agy + skills + config.json)" },
+        { id: "3", label: "T3 Code only", hint: "(install t3code + link skills)" },
+      ],
+      rl
+    );
+    resolvedOnly = resolveInstallProfile(profileChoice);
+  }
+
+  const explicitSet = resolvedOnly ? new Set(resolvedOnly.map((m) => m.trim().toLowerCase())) : null;
+  const shouldConfigureT3 = !explicitSet || explicitSet.has("t3");
+
+  // 1. Auto-install & configure T3 Code (unless --only / profile excluded t3)
+  if (shouldConfigureT3) {
     if (!applyOnly) {
       setupT3({ autoInstall: true });
     } else {
@@ -1259,7 +1407,7 @@ export async function runInstall({ only = null, rl = null, applyOnly = false } =
         continue;
       }
 
-      await setupHarness(id, h, { installCli: !applyOnly, rl });
+      await setupHarness(id, h, { installCli: !applyOnly, rl, configureT3: shouldConfigureT3 });
     }
   }
 
@@ -1390,15 +1538,15 @@ async function main() {
 
 Commands:
   (none)                  Interactive modular manager menu
-  setup, -i, --install    Auto-install T3 Code & choose harnesses from a single menu
-  apply, --apply          Configure skills and apply Pi & T3 Code configs without installing packages
+  setup, -i, --install    Choose T3 Code or Antigravity (agy) and configure skills
+  apply, --apply          Configure skills and apply Pi, T3 Code & Agy configs without installing packages
   update, -u, --update    Update ~/.agents repo, Pi CLI, and Pi extensions
-  sync, -s, --sync        Sync skills, Pi, and T3 Code settings to GitHub
-  doctor, -d, --doctor    Check system health, T3 Code config, and all harness skill configurations
+  sync, -s, --sync        Sync skills, Pi, T3 Code, and Agy settings to GitHub
+  doctor, -d, --doctor    Check system health, T3 Code & Agy configs, and all harness skill configurations
   uninstall, --uninstall  Unlink compatibility symlinks and uninstall Pi CLI
 
 Options:
-  --only <h1,h2>          Non-interactive install for specific targets (e.g. --only t3,pi,agy)`);
+  --only <h1,h2>          Non-interactive install for specific targets (e.g. --only agy or --only t3,pi,agy)`);
     return;
   }
 
@@ -1425,10 +1573,10 @@ Options:
   console.log("==========================================================\n");
 
   const actions = [
-    { id: "1", label: "Install T3 Code & Harnesses", hint: "(agents setup)" },
+    { id: "1", label: "Install (T3 Code / Antigravity)", hint: "(agents setup)" },
     { id: "2", label: "Apply Skills & Configs Only", hint: "(agents apply)" },
     { id: "3", label: "Update Repo, Pi CLI & Extensions", hint: "(agents update)" },
-    { id: "4", label: "Sync Skills, Pi & T3 Config to GitHub", hint: "(agents sync)" },
+    { id: "4", label: "Sync Skills & Configs to GitHub", hint: "(agents sync)" },
     { id: "5", label: "Run System Health Check", hint: "(agents doctor)" },
     { id: "6", label: "Uninstall", hint: "(agents uninstall)" },
     { id: "7", label: "Exit", hint: "" },

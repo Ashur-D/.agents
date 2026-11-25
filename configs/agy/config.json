@@ -1,0 +1,24 @@
+{
+  "userSettings": {
+    "artifactReviewMode": "ARTIFACT_REVIEW_MODE_ALWAYS",
+    "autoExecutionPolicy": "CASCADE_COMMANDS_AUTO_EXECUTION_EAGER",
+    "conversationWidth": "CONVERSATION_WIDTH_WIDE",
+    "customThemeSeedsDark": {
+      "background": "#141617",
+      "codeForegroundOverride": "#a9b665",
+      "foregroundOverride": "#d4be98",
+      "primary": "#e78a4e",
+      "primaryForegroundOverride": "#141617"
+    },
+    "enableTerminalSandbox": false,
+    "nonWorkspaceFileAccessPolicy": "AGENT_SETTING_POLICY_ALLOW",
+    "orchestratorExecutorModel": "MODEL_PLACEHOLDER_M526",
+    "orchestratorModel": "MODEL_PLACEHOLDER_M533",
+    "permissionGrantsV2Migrated": true,
+    "permissionPreset": "AGENT_PERMISSION_PRESET_TURBO",
+    "remoteControlEnabled": true,
+    "sandboxEnabledAtV2Migration": false,
+    "verboseConversationSteps": true,
+    "voiceVolume": 0
+  }
+}

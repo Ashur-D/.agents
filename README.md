@@ -9,6 +9,7 @@ Follows the `agentskills.io` (`~/.agents/skills`) standard for **Pi Coding Agent
 ├── harnesses.json       # Declarative registry of harnesses, T3 Code config & skill modes
 ├── skills/              # Canonical skills (~/.agents/skills — auto-discovered natively)
 ├── configs/
+│   ├── agy/             # Antigravity userSettings (config.json)
 │   ├── pi/              # Pi templates & custom-welcome extension
 │   └── t3/              # T3 Code settings, client preferences, keybindings & themes
 └── bin/
@@ -21,7 +22,7 @@ Follows the `agentskills.io` (`~/.agents/skills`) standard for **Pi Coding Agent
 
 - **Pi Coding Agent (`pi`)**: Natively scans `~/.agents/skills` out of the box (**0 symlinks**).
 - **OpenCode (`opencode`)**: Configured via `"skills": ["~/.agents/skills"]` in `~/.config/opencode/opencode.json` (**0 symlinks**).
-- **Antigravity (`agy`)**: Uses 1 compatibility symlink (`~/.gemini/config/skills -> ~/.agents/skills`).
+- **Antigravity (`agy`)**: Uses 1 compatibility symlink (`~/.gemini/config/skills -> ~/.agents/skills`) and syncs `userSettings` via `configs/agy/config.json`.
 - **T3 Code (`t3`)**: Automatically delegates to the active provider (`pi` or `agy`).
 
 ## ⚡ Quick Start
@@ -34,11 +35,11 @@ git clone https://github.com/Ashur-D/.agents.git ~/.agents
 ## 🛠️ CLI Commands
 
 - `agents` — Interactive menu
-- `agents setup` — Install & configure modules (`--only skills,t3`, `--only skills,pi`)
-- `agents apply` — Configure skills and apply Pi & T3 Code configs without installing packages
-- `agents doctor` — Health check for dependencies, T3 Code config, and all harness skill configurations
+- `agents setup` — Choose **T3 Code + Harnesses**, **Antigravity (`agy`) only**, or **T3 Code only** (or pass `--only agy`, `--only skills,t3`, `--only skills,pi`)
+- `agents apply` — Configure skills and apply Pi, T3 Code & Agy configs without installing packages
+- `agents doctor` — Health check for dependencies, T3 Code & Agy configs, and all harness skill configurations
 - `agents update` — Update `~/.agents`, Pi CLI, and Pi extensions
-- `agents sync` — Sync `~/.agents/skills`, Pi settings, and T3 Code configs to GitHub
+- `agents sync` — Sync `~/.agents/skills`, Pi, T3 Code, and Agy configs to GitHub
 
 ## 📚 Installed Skills & Sources
 
